@@ -1,257 +1,174 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use russh::{
-    ChannelMsg, ChannelReadHalf, client,
+    Channel, ChannelMsg, client,
     keys::{HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate, load_secret_key},
 };
-use russh_sftp::client::SftpSession;
-use serde::Deserialize;
-use tokio::time::{Instant, timeout};
-use uuid::Uuid;
-use vibe_ssh_protocol::{
-    CompletionReason, ExecutionRequest, ExecutionResult, InputLease, JobStatus, MAX_OUTPUT_LIMIT,
-};
+use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
+use vibe_ssh_protocol::ErrorCode;
 
-use crate::{ControlledInput, Error, Result, output::OutputTail};
+use crate::{Error, Result};
 
-/// Developer probe configuration. Persistent host management is a later milestone.
-#[derive(Deserialize)]
+pub(crate) const SETUP: Duration = Duration::from_secs(15);
+
+/// A server the user added by hand. Secrets are never stored here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConnectionConfig {
+pub struct Host {
+    pub id: String,
+    pub name: String,
     pub host: String,
+    #[serde(default = "default_port")]
     pub port: u16,
     pub username: String,
-    pub identity_file: PathBuf,
+    /// OpenSSH private key. Without it the connection uses password authentication.
+    #[serde(default)]
+    pub identity_file: Option<PathBuf>,
+    /// Fingerprint the user verified out of band. A mismatch stops before authentication.
     pub host_key_sha256: String,
+    /// Agents can only see and open hosts the user enabled.
+    #[serde(default)]
+    pub agent_access: bool,
 }
 
-struct PinnedHost {
+fn default_port() -> u16 {
+    22
+}
+
+struct Pinned {
     fingerprint: String,
 }
 
-impl client::Handler for PinnedHost {
+impl client::Handler for Pinned {
     type Error = Error;
 
     async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool> {
         if key.public_key().fingerprint(HashAlg::Sha256).to_string() != self.fingerprint {
-            return Err(Error::HostKeyMismatch);
+            return Err(Error::new(
+                ErrorCode::HostKeyMismatch,
+                "host key does not match the fingerprint the user verified",
+            ));
         }
         Ok(true)
     }
 }
 
-pub struct SshConnection {
-    handle: client::Handle<PinnedHost>,
+pub(crate) struct Connection {
+    handle: client::Handle<Pinned>,
 }
 
-impl SshConnection {
-    pub async fn connect(config: &ConnectionConfig) -> Result<Self> {
-        if config.host.is_empty() || config.username.is_empty() || config.port == 0 {
-            return Err(Error::InvalidRequest(
-                "host, username and a nonzero port are required",
+impl Connection {
+    /// `secret` is the password, or the passphrase of an encrypted identity file.
+    pub async fn connect(host: &Host, secret: Option<&str>) -> Result<Self> {
+        let invalid = |message| Error::new(ErrorCode::InvalidRequest, message);
+        if host.host.is_empty() || host.username.is_empty() || host.port == 0 {
+            return Err(invalid("host, username and a nonzero port are required"));
+        }
+        if !host.host_key_sha256.starts_with("SHA256:") {
+            return Err(invalid(
+                "a user-verified SHA256 host fingerprint is required",
             ));
         }
-        if !config.host_key_sha256.starts_with("SHA256:") {
-            return Err(Error::InvalidRequest(
-                "an explicitly verified SHA256 host fingerprint is required",
-            ));
-        }
-        let key = load_secret_key(&config.identity_file, None).map_err(|_| Error::IdentityLoad)?;
+        let failed = |message| Error::new(ErrorCode::AuthenticationFailed, message);
+        let key = match &host.identity_file {
+            Some(path) => Some(
+                load_secret_key(path, secret)
+                    .map_err(|_| failed("could not read the configured OpenSSH identity"))?,
+            ),
+            None => None,
+        };
+        let config = client::Config {
+            keepalive_interval: Some(Duration::from_secs(30)),
+            nodelay: true,
+            ..Default::default()
+        };
         let connect = async {
             let mut handle = client::connect(
-                Arc::new(client::Config::default()),
-                (config.host.as_str(), config.port),
-                PinnedHost {
-                    fingerprint: config.host_key_sha256.clone(),
+                Arc::new(config),
+                (host.host.as_str(), host.port),
+                Pinned {
+                    fingerprint: host.host_key_sha256.clone(),
                 },
             )
             .await?;
-            let hash = handle.best_supported_rsa_hash().await?.flatten();
-            let authenticated = handle
-                .authenticate_publickey(
-                    &config.username,
-                    PrivateKeyWithHashAlg::new(Arc::new(key), hash),
-                )
-                .await?;
-            if !authenticated.success() {
-                return Err(Error::AuthenticationFailed);
+            let result = match key {
+                Some(key) => {
+                    let hash = handle.best_supported_rsa_hash().await?.flatten();
+                    handle
+                        .authenticate_publickey(
+                            &host.username,
+                            PrivateKeyWithHashAlg::new(Arc::new(key), hash),
+                        )
+                        .await?
+                }
+                None => {
+                    let password = secret.ok_or_else(|| failed("no credential is available"))?;
+                    handle
+                        .authenticate_password(&host.username, password)
+                        .await?
+                }
+            };
+            if !result.success() {
+                return Err(failed("the server rejected the credential"));
             }
             Ok(Self { handle })
         };
-        timeout(Duration::from_secs(15), connect)
-            .await
-            .map_err(|_| Error::ConnectionTimeout)?
-    }
-
-    pub async fn start(&self, request: ExecutionRequest) -> Result<RunningCommand> {
-        validate_request(&request)?;
-        let mut channel = timeout(Duration::from_secs(15), self.handle.channel_open_session())
-            .await
-            .map_err(|_| Error::ConnectionTimeout)??;
-        if request.pty {
-            channel
-                .request_pty(true, "xterm-256color", 100, 30, 0, 0, &[])
-                .await?;
-            await_channel_reply(&mut channel).await?;
-        }
-        let command = match &request.cwd {
-            Some(cwd) => format!("cd {} && {}", quote_posix(cwd), request.command),
-            None => request.command.clone(),
-        };
-        channel.exec(true, command).await?;
-        let (reader, writer) = channel.split();
-        let (input, initial_lease) = ControlledInput::new(writer);
-        Ok(RunningCommand {
-            id: Uuid::new_v4(),
-            reader,
-            input: Arc::new(input),
-            initial_lease,
-            request,
-            started: Instant::now(),
-        })
-    }
-
-    pub async fn run(&self, request: ExecutionRequest) -> Result<ExecutionResult> {
-        self.start(request).await?.collect().await
-    }
-
-    /// Low-level SFTP session for M0. Product file policy is implemented in M2.
-    pub async fn sftp(&self) -> Result<SftpSession> {
-        let mut channel = self.handle.channel_open_session().await?;
-        channel.request_subsystem(true, "sftp").await?;
-        await_channel_reply(&mut channel).await?;
-        SftpSession::new(channel.into_stream())
-            .await
-            .map_err(|e| Error::Sftp(e.to_string()))
-    }
-
-    pub async fn disconnect(&self) -> Result<()> {
-        self.handle
-            .disconnect(russh::Disconnect::ByApplication, "client shutdown", "en")
-            .await?;
-        Ok(())
-    }
-}
-
-pub struct RunningCommand {
-    pub id: Uuid,
-    pub input: Arc<ControlledInput>,
-    pub initial_lease: InputLease,
-    reader: ChannelReadHalf,
-    request: ExecutionRequest,
-    started: Instant,
-}
-
-impl RunningCommand {
-    pub async fn collect(mut self) -> Result<ExecutionResult> {
-        let mut stdout = OutputTail::new(self.request.output_limit);
-        let mut stderr = OutputTail::new(self.request.output_limit);
-        let mut exit_code = None;
-        let mut exit_signal = None;
-        let mut observation_expired = false;
-        let deadline = self.started + Duration::from_millis(self.request.timeout_ms);
-        loop {
-            let message = tokio::select! {
-                _ = tokio::time::sleep_until(deadline) => {
-                    observation_expired = true;
-                    break;
-                }
-                message = self.reader.wait() => message,
-            };
-            match message {
-                Some(ChannelMsg::Data { data }) => stdout.append(&data),
-                Some(ChannelMsg::ExtendedData { data, .. }) if self.request.pty => {
-                    stdout.append(&data)
-                }
-                Some(ChannelMsg::ExtendedData { data, .. }) => stderr.append(&data),
-                Some(ChannelMsg::ExitStatus { exit_status }) => exit_code = Some(exit_status),
-                Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
-                    exit_signal = Some(format!("{signal_name:?}"))
-                }
-                Some(ChannelMsg::Failure) => return Err(Error::ChannelRejected),
-                Some(ChannelMsg::Close) | None => break,
-                // EOF can precede exit status. Continue until channel closure.
-                _ => {}
-            }
-        }
-        // Release the local channel; this does not guarantee termination remotely.
-        let _ = self.input.close().await;
-        let (status, completion_reason) = if observation_expired {
-            (JobStatus::Unknown, CompletionReason::ObservationTimeout)
-        } else if exit_signal.is_some() {
-            (JobStatus::Failed, CompletionReason::ExitSignal)
-        } else if let Some(code) = exit_code {
-            (
-                if code == 0 {
-                    JobStatus::Succeeded
-                } else {
-                    JobStatus::Failed
-                },
-                CompletionReason::ExitStatus,
+        timeout(SETUP, connect).await.map_err(|_| {
+            Error::new(
+                ErrorCode::ConnectionFailed,
+                "connection or authentication timed out",
             )
-        } else {
-            (JobStatus::Unknown, CompletionReason::MissingExitStatus)
-        };
-        Ok(ExecutionResult {
-            job_id: self.id,
-            status,
-            completion_reason,
-            exit_code,
-            exit_signal,
-            stdout: stdout.snapshot(),
-            stderr: stderr.snapshot(),
-            output_merged: self.request.pty,
-            elapsed_ms: self.started.elapsed().as_millis(),
-        })
+        })?
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
+    /// Opens a session channel. Nothing runs on the remote until the caller sends exec or shell.
+    pub async fn channel(&self, pty: Option<(u32, u32)>) -> Result<Channel<client::Msg>> {
+        let mut channel = timeout(SETUP, self.handle.channel_open_session())
+            .await
+            .map_err(|_| Error::new(ErrorCode::ConnectionFailed, "channel open timed out"))??;
+        if let Some((columns, rows)) = pty {
+            channel
+                .request_pty(true, "xterm-256color", columns, rows, 0, 0, &[])
+                .await?;
+            await_reply(&mut channel).await?;
+        }
+        Ok(channel)
+    }
+
+    pub async fn disconnect(&self) {
+        let _ = self
+            .handle
+            .disconnect(russh::Disconnect::ByApplication, "space closed", "en")
+            .await;
     }
 }
 
-async fn await_channel_reply(channel: &mut russh::Channel<client::Msg>) -> Result<()> {
-    timeout(Duration::from_secs(15), async {
+async fn await_reply(channel: &mut Channel<client::Msg>) -> Result<()> {
+    let rejected = || {
+        Error::new(
+            ErrorCode::ChannelRejected,
+            "the server rejected the request",
+        )
+    };
+    timeout(SETUP, async {
         loop {
             match channel.wait().await {
                 Some(ChannelMsg::Success) => return Ok(()),
                 Some(ChannelMsg::WindowAdjusted { .. }) => {}
-                _ => return Err(Error::ChannelRejected),
+                _ => return Err(rejected()),
             }
         }
     })
     .await
-    .map_err(|_| Error::ConnectionTimeout)?
+    .map_err(|_| Error::new(ErrorCode::ConnectionFailed, "channel request timed out"))?
 }
 
-fn validate_request(request: &ExecutionRequest) -> Result<()> {
-    if request.command.is_empty()
-        || request.command.contains('\0')
-        || request.command.len() > 1_048_576
-    {
-        return Err(Error::InvalidRequest(
-            "command must be nonempty, NUL-free and at most 1 MiB",
-        ));
-    }
-    if !(1..=3_600_000).contains(&request.timeout_ms) {
-        return Err(Error::InvalidRequest(
-            "observation timeout must be 1..=3600000 ms",
-        ));
-    }
-    if !(4..=MAX_OUTPUT_LIMIT).contains(&request.output_limit) {
-        return Err(Error::InvalidRequest(
-            "output budget must be 4..=1048576 bytes per stream",
-        ));
-    }
-    if request
-        .cwd
-        .as_ref()
-        .is_some_and(|p| !p.starts_with('/') || p.contains('\0'))
-    {
-        return Err(Error::InvalidRequest(
-            "cwd must be an absolute NUL-free POSIX path",
-        ));
-    }
-    Ok(())
-}
-
-fn quote_posix(value: &str) -> String {
+pub(crate) fn quote_posix(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 

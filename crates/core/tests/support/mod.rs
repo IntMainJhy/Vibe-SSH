@@ -1,24 +1,27 @@
-//! Deterministic SSH/SFTP protocol fixture. It never executes received commands.
+//! Deterministic SSH protocol fixture. It never executes received commands.
+#![allow(dead_code)] // each test binary uses a different part of the fixture
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use russh::{
-    Channel, ChannelId, Pty,
+    Channel, ChannelId, Pty, Sig,
     keys::{Algorithm, HashAlg, PrivateKey, PublicKey},
     server::{self, Auth, Msg, Server as _, Session, VerifiedPublicKey},
 };
-use russh_sftp::protocol::{Data, FileAttributes, Handle, OpenFlags, Status, StatusCode};
 use tempfile::TempDir;
-use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
-use vibe_ssh_core::ConnectionConfig;
+use tokio::{net::TcpListener, task::JoinHandle};
+use vibe_ssh_core::{By, Host, Service};
+use vibe_ssh_protocol::{JobView, Owner};
+
+pub const PASSWORD: &str = "fixture-password";
 
 #[derive(Default)]
 pub struct Stats {
@@ -28,24 +31,26 @@ pub struct Stats {
     pub ptys: AtomicUsize,
     pub resizes: AtomicUsize,
     pub executions: AtomicUsize,
+    pub signals: AtomicUsize,
     pub deny_pty: AtomicBool,
     pub received: Mutex<Vec<u8>>,
+    pub commands: Mutex<Vec<String>>,
 }
 
 pub struct Fixture {
-    pub config: ConnectionConfig,
+    pub service: Arc<Service>,
     pub stats: Arc<Stats>,
+    pub home: TempDir,
     shutdown: server::RunningServerHandle,
     task: JoinHandle<()>,
-    _directory: TempDir,
 }
 
 impl Fixture {
     pub async fn start() -> anyhow::Result<Self> {
         let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
         let identity = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
-        let directory = tempfile::tempdir()?;
-        let identity_file = directory.path().join("identity");
+        let home = tempfile::tempdir()?;
+        let identity_file = home.path().join("identity");
         identity.write_openssh_file(&identity_file, Default::default())?;
         let stats = Arc::new(Stats::default());
         let mut server = TestServer {
@@ -53,17 +58,42 @@ impl Fixture {
             stats: stats.clone(),
         };
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-        let port = listener.local_addr()?.port();
-        let config = ConnectionConfig {
+        let host = |id: &str| Host {
+            id: id.into(),
+            name: format!("{id} server"),
             host: "127.0.0.1".into(),
-            port,
+            port: listener.local_addr().unwrap().port(),
             username: "fixture".into(),
-            identity_file,
+            identity_file: Some(identity_file.clone()),
             host_key_sha256: host_key
                 .public_key()
                 .fingerprint(HashAlg::Sha256)
                 .to_string(),
+            agent_access: true,
         };
+        let service = Service::new(
+            home.path().to_owned(),
+            Box::new(|host| (host.id == "password").then(|| PASSWORD.to_owned())),
+        );
+        service.save_hosts(&[
+            host("fixture"),
+            Host {
+                agent_access: false,
+                ..host("private")
+            },
+            Host {
+                identity_file: None,
+                ..host("password")
+            },
+            Host {
+                host_key_sha256: "SHA256:incorrect".into(),
+                ..host("badkey")
+            },
+            Host {
+                username: "not-the-fixture-user".into(),
+                ..host("wronguser")
+            },
+        ])?;
         let server_config = Arc::new(server::Config {
             keys: vec![host_key],
             auth_rejection_time: Duration::ZERO,
@@ -79,12 +109,55 @@ impl Fixture {
         });
         let shutdown = ready_rx.await?;
         Ok(Self {
-            config,
+            service,
             stats,
+            home,
             shutdown,
             task,
-            _directory: directory,
         })
+    }
+
+    /// Opens an agent space on the fixture host. Returns `(space, lease)`.
+    pub async fn agent(&self) -> anyhow::Result<(String, String)> {
+        let view = self
+            .service
+            .open("fixture", "test goal", "test-agent", Owner::Agent)
+            .await?;
+        Ok((
+            view.space,
+            view.control.lease.expect("agent owns a new space"),
+        ))
+    }
+
+    /// Runs a command as the agent and waits for it to finish.
+    pub async fn exec(&self, lease: &str, command: &str) -> anyhow::Result<JobView> {
+        let job = self
+            .service
+            .run(By::Lease(lease), Some(command.into()), None, None)
+            .await?;
+        Ok(self.service.job_settled(&job, 5_000, 8_192, true).await?)
+    }
+
+    pub fn count(&self, counter: &AtomicUsize) -> usize {
+        counter.load(Ordering::SeqCst)
+    }
+
+    /// Input is acknowledged once queued on the transport, so the server sees it slightly later.
+    pub async fn expect_received(&self, expected: &[u8]) {
+        for _ in 0..200 {
+            if self.received() == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&self.received()),
+            String::from_utf8_lossy(expected)
+        );
+    }
+
+    pub fn received(&self) -> Vec<u8> {
+        self.stats.received.lock().unwrap().clone()
     }
 }
 
@@ -109,6 +182,7 @@ impl server::Server for TestServer {
             key: self.key.clone(),
             stats: self.stats.clone(),
             channels: HashMap::new(),
+            uploads: HashSet::new(),
         }
     }
 }
@@ -117,20 +191,20 @@ struct TestSession {
     key: PublicKey,
     stats: Arc<Stats>,
     channels: HashMap<ChannelId, Channel<Msg>>,
+    /// Channels whose stdin is a file stream rather than terminal input.
+    uploads: HashSet<ChannelId>,
 }
 
-impl TestSession {
-    fn finish(
-        session: &mut Session,
-        channel: ChannelId,
-        code: Option<u32>,
-    ) -> Result<(), russh::Error> {
-        if let Some(code) = code {
-            session.exit_status_request(channel, code)?;
-        }
-        session.eof(channel)?;
-        session.close(channel)
+fn finish(
+    session: &mut Session,
+    channel: ChannelId,
+    code: Option<u32>,
+) -> Result<(), russh::Error> {
+    if let Some(code) = code {
+        session.exit_status_request(channel, code)?;
     }
+    session.eof(channel)?;
+    session.close(channel)
 }
 
 impl server::Handler for TestSession {
@@ -143,6 +217,15 @@ impl server::Handler for TestSession {
     ) -> Result<Auth, Self::Error> {
         self.stats.authentications.fetch_add(1, Ordering::SeqCst);
         Ok(if username == "fixture" && key.public_key == &self.key {
+            Auth::Accept
+        } else {
+            Auth::reject()
+        })
+    }
+
+    async fn auth_password(&mut self, username: &str, password: &str) -> Result<Auth, Self::Error> {
+        self.stats.authentications.fetch_add(1, Ordering::SeqCst);
+        Ok(if username == "fixture" && password == PASSWORD {
             Auth::Accept
         } else {
             Auth::reject()
@@ -193,6 +276,16 @@ impl server::Handler for TestSession {
         Ok(())
     }
 
+    async fn shell_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.stats.executions.fetch_add(1, Ordering::SeqCst);
+        session.channel_success(channel)?;
+        session.data(channel, b"shell ready\n".to_vec())
+    }
+
     async fn exec_request(
         &mut self,
         channel: ChannelId,
@@ -200,42 +293,41 @@ impl server::Handler for TestSession {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.stats.executions.fetch_add(1, Ordering::SeqCst);
+        let command = String::from_utf8_lossy(command).into_owned();
+        self.stats.commands.lock().unwrap().push(command.clone());
         session.channel_success(channel)?;
-        match command {
-            b"ok" => {
+        match command.as_str() {
+            "ok" | "cd '/srv/it'\\''s here' && ok" => {
                 session.data(channel, b"ready\n".to_vec())?;
-                Self::finish(session, channel, Some(0))?;
+                finish(session, channel, Some(0))?;
             }
-            b"exit-7-with-tail" => {
+            "exit-7-with-tail" => {
                 session.data(channel, b"start\n".to_vec())?;
                 session.extended_data(channel, 1, b"problem\n".to_vec())?;
                 session.exit_status_request(channel, 7)?;
                 session.data(channel, b"tail after status\n".to_vec())?;
-                Self::finish(session, channel, None)?;
+                finish(session, channel, None)?;
             }
-            b"missing-status" => Self::finish(session, channel, None)?,
-            b"signaled" => {
-                session.exit_signal_request(
-                    channel,
-                    russh::Sig::TERM,
-                    false,
-                    "test signal",
-                    "en",
-                )?;
-                Self::finish(session, channel, None)?;
+            "missing-status" => finish(session, channel, None)?,
+            "signaled" => {
+                session.exit_signal_request(channel, Sig::TERM, false, "test signal", "en")?;
+                finish(session, channel, None)?;
             }
-            b"large" => {
+            "large" => {
                 for _ in 0..32 {
                     session.data(channel, "部署🚀".repeat(100).into_bytes())?;
                 }
                 session.data(channel, b"done".to_vec())?;
-                Self::finish(session, channel, Some(0))?;
+                finish(session, channel, Some(0))?;
             }
-            b"interactive" => {
-                session.data(channel, b"interactive ready\n".to_vec())?;
+            "interactive" => session.data(channel, b"interactive ready\n".to_vec())?,
+            "stall" => {}
+            // The transport dies under a running job.
+            "drop" => return Err(russh::Error::Disconnect),
+            upload if upload.starts_with("mkdir -p ") => {
+                self.uploads.insert(channel);
             }
-            b"stall" => {}
-            _ => Self::finish(session, channel, Some(127))?,
+            _ => finish(session, channel, Some(127))?,
         }
         Ok(())
     }
@@ -246,116 +338,37 @@ impl server::Handler for TestSession {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Subsystem bytes belong to the SFTP stream, never the terminal echo path.
-        if !self.channels.contains_key(&channel) {
+        self.stats.received.lock().unwrap().extend_from_slice(data);
+        if self.uploads.contains(&channel) {
             return Ok(());
         }
-        self.stats.received.lock().await.extend_from_slice(data);
         session.data(channel, data.to_vec())?;
-        if data == b"finish\n" {
-            Self::finish(session, channel, Some(0))?;
+        match data {
+            b"finish\n" | b"exit\n" => finish(session, channel, Some(0)),
+            b"\x03" => finish(session, channel, Some(130)),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
-    async fn subsystem_request(
+    async fn channel_eof(
         &mut self,
         channel: ChannelId,
-        name: &str,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if name != "sftp" {
-            return session.channel_failure(channel);
-        }
-        session.channel_success(channel)?;
-        if let Some(channel) = self.channels.remove(&channel) {
-            tokio::spawn(russh_sftp::server::run(
-                channel.into_stream(),
-                MemorySftp::default(),
-            ));
+        if self.uploads.remove(&channel) {
+            finish(session, channel, Some(0))?;
         }
         Ok(())
     }
-}
 
-/// A virtual fixture file, not a production filesystem adapter.
-#[derive(Default)]
-struct MemorySftp {
-    contents: Vec<u8>,
-}
-
-impl russh_sftp::server::Handler for MemorySftp {
-    type Error = StatusCode;
-
-    fn unimplemented(&self) -> Self::Error {
-        StatusCode::OpUnsupported
-    }
-
-    async fn open(
+    async fn signal(
         &mut self,
-        id: u32,
-        filename: String,
-        flags: OpenFlags,
-        _: FileAttributes,
-    ) -> Result<Handle, Self::Error> {
-        if filename != "fixture.txt" {
-            return Err(StatusCode::PermissionDenied);
-        }
-        if flags.contains(OpenFlags::TRUNCATE) {
-            self.contents.clear();
-        }
-        Ok(Handle {
-            id,
-            handle: filename,
-        })
-    }
-
-    async fn write(
-        &mut self,
-        id: u32,
-        _: String,
-        offset: u64,
-        data: Vec<u8>,
-    ) -> Result<Status, Self::Error> {
-        let start = usize::try_from(offset).map_err(|_| StatusCode::Failure)?;
-        let end = start.checked_add(data.len()).ok_or(StatusCode::Failure)?;
-        if end > 1_048_576 {
-            return Err(StatusCode::Failure);
-        }
-        self.contents.resize(self.contents.len().max(end), 0);
-        self.contents[start..end].copy_from_slice(&data);
-        Ok(Status {
-            id,
-            status_code: StatusCode::Ok,
-            error_message: String::new(),
-            language_tag: "en".into(),
-        })
-    }
-
-    async fn read(
-        &mut self,
-        id: u32,
-        _: String,
-        offset: u64,
-        len: u32,
-    ) -> Result<Data, Self::Error> {
-        let start = usize::try_from(offset).map_err(|_| StatusCode::Failure)?;
-        if start >= self.contents.len() {
-            return Err(StatusCode::Eof);
-        }
-        let end = start.saturating_add(len as usize).min(self.contents.len());
-        Ok(Data {
-            id,
-            data: self.contents[start..end].to_vec(),
-        })
-    }
-
-    async fn close(&mut self, id: u32, _: String) -> Result<Status, Self::Error> {
-        Ok(Status {
-            id,
-            status_code: StatusCode::Ok,
-            error_message: String::new(),
-            language_tag: "en".into(),
-        })
+        channel: ChannelId,
+        signal: Sig,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.stats.signals.fetch_add(1, Ordering::SeqCst);
+        session.exit_signal_request(channel, signal, false, "interrupted", "en")?;
+        finish(session, channel, None)
     }
 }

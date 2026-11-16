@@ -1,36 +1,39 @@
-//! M0 SSH execution primitives. No daemon, persistent vault or UI is implied.
+//! Task-space SSH kernel shared by the local agent socket and the desktop app.
 
-mod control;
 mod output;
+mod server;
+mod service;
+pub mod skill;
 mod ssh;
 
-pub use control::ControlledInput;
-pub use ssh::{ConnectionConfig, RunningCommand, SshConnection};
+pub use server::{default_home, request, serve, socket_path};
+pub use service::{By, Secrets, Service};
+pub use ssh::Host;
+pub use vibe_ssh_protocol::ErrorCode;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("invalid request: {0}")]
-    InvalidRequest(&'static str),
-    #[error("SSH transport error: {0}")]
-    Ssh(#[from] russh::Error),
-    #[error("host key does not match the explicitly configured SHA256 fingerprint")]
-    HostKeyMismatch,
-    #[error("could not read the configured unencrypted OpenSSH identity")]
-    IdentityLoad,
-    #[error("SSH public-key authentication failed")]
-    AuthenticationFailed,
-    #[error("connection, authentication or channel setup deadline exceeded")]
-    ConnectionTimeout,
-    #[error("input control was revoked or the lease belongs to another channel")]
-    ControlRevoked,
-    #[error("input control epoch exhausted")]
-    EpochExhausted,
-    #[error("input submission timed out; delivery may be partial and must not be blindly retried")]
-    InputDeliveryUnknown,
-    #[error("remote channel rejected the requested operation")]
-    ChannelRejected,
-    #[error("SFTP operation failed: {0}")]
-    Sftp(String),
+#[error("{message}")]
+pub struct Error {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl Error {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl From<russh::Error> for Error {
+    fn from(error: russh::Error) -> Self {
+        Self::new(
+            ErrorCode::ConnectionFailed,
+            format!("SSH transport: {error}"),
+        )
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

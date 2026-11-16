@@ -1,235 +1,303 @@
 mod support;
 
-use std::{sync::atomic::Ordering, time::Duration};
+use std::time::Duration;
 
 use support::Fixture;
-use vibe_ssh_core::{Error, SshConnection};
-use vibe_ssh_protocol::{CompletionReason, ExecutionRequest, InputOwner, JobStatus};
+use vibe_ssh_core::{By, Error, ErrorCode};
+use vibe_ssh_protocol::{JobStatus, Owner, Reason};
 
-fn request(command: &str) -> ExecutionRequest {
-    ExecutionRequest {
-        command: command.into(),
-        cwd: None,
-        pty: false,
-        timeout_ms: 5_000,
-        output_limit: 8192,
-    }
+fn code<T>(result: Result<T, Error>) -> ErrorCode {
+    result.err().expect("the operation should be refused").code
 }
 
 #[tokio::test]
 async fn rejects_wrong_host_key_before_authentication() -> anyhow::Result<()> {
-    let mut fixture = Fixture::start().await?;
-    fixture.config.host_key_sha256 = "SHA256:incorrect".into();
-    let result = SshConnection::connect(&fixture.config).await;
-    assert!(matches!(result, Err(Error::HostKeyMismatch)));
-    assert_eq!(fixture.stats.authentications.load(Ordering::SeqCst), 0);
-    Ok(())
-}
-
-#[tokio::test]
-async fn refuses_unknown_identity_instead_of_falling_back() -> anyhow::Result<()> {
-    let mut fixture = Fixture::start().await?;
-    fixture.config.username = "not-the-fixture-user".into();
-    assert!(matches!(
-        SshConnection::connect(&fixture.config).await,
-        Err(Error::AuthenticationFailed)
-    ));
-    Ok(())
-}
-
-#[tokio::test]
-async fn reuses_authenticated_connection_and_drains_data_after_exit_status() -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let failed = connection.run(request("exit-7-with-tail")).await?;
+    let result = fixture
+        .service
+        .open("badkey", "goal", "a", Owner::Agent)
+        .await;
+    assert_eq!(code(result), ErrorCode::HostKeyMismatch);
+    assert_eq!(fixture.count(&fixture.stats.authentications), 0);
+    assert!(fixture.service.spaces(false).await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn refuses_a_rejected_identity_and_accepts_a_password_from_the_secret_source()
+-> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let wrong = fixture
+        .service
+        .open("wronguser", "goal", "a", Owner::Agent)
+        .await;
+    assert_eq!(code(wrong), ErrorCode::AuthenticationFailed);
+    let view = fixture
+        .service
+        .open("password", "goal", "a", Owner::Agent)
+        .await?;
+    let done = fixture
+        .exec(view.control.lease.as_deref().unwrap(), "ok")
+        .await?;
+    assert_eq!(done.status, JobStatus::Succeeded);
+    Ok(())
+}
+
+#[tokio::test]
+async fn agents_only_reach_hosts_the_user_enabled() -> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let visible = fixture.service.hosts(true)?;
+    assert!(visible.iter().all(|host| host.id != "private"));
+    assert!(
+        fixture
+            .service
+            .hosts(false)?
+            .iter()
+            .any(|host| host.id == "private")
+    );
+    for name in ["private", "private server", "no-such-host"] {
+        let result = fixture.service.open(name, "goal", "a", Owner::Agent).await;
+        assert_eq!(code(result), ErrorCode::HostNotAuthorized);
+    }
+    assert_eq!(
+        fixture.count(&fixture.stats.connections),
+        0,
+        "nothing was dialled"
+    );
+    fixture
+        .service
+        .open("private", "mine", "me", Owner::Human)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_space_reuses_its_connection_and_drains_data_after_exit_status() -> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let (_, lease) = fixture.agent().await?;
+    let failed = fixture.exec(&lease, "exit-7-with-tail").await?;
     assert_eq!(failed.status, JobStatus::Failed);
     assert_eq!(failed.exit_code, Some(7));
     assert_eq!(failed.stdout.text, "start\ntail after status\n");
     assert_eq!(failed.stderr.text, "problem\n");
-    let success = connection.run(request("ok")).await?;
-    assert_eq!(success.status, JobStatus::Succeeded);
-    assert_eq!(fixture.stats.connections.load(Ordering::SeqCst), 1);
-    assert_eq!(fixture.stats.authentications.load(Ordering::SeqCst), 1);
-    assert_eq!(fixture.stats.channels.load(Ordering::SeqCst), 2);
-    connection.disconnect().await?;
+    assert_eq!(failed.stream_mode, "separate");
+    assert_eq!(
+        fixture.exec(&lease, "ok").await?.status,
+        JobStatus::Succeeded
+    );
+    assert_eq!(fixture.count(&fixture.stats.connections), 1);
+    assert_eq!(fixture.count(&fixture.stats.authentications), 1);
+    assert_eq!(fixture.count(&fixture.stats.channels), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn each_space_has_its_own_connection_and_losing_one_leaves_the_other_working()
+-> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let (_, agent) = fixture.agent().await?;
+    let mine = fixture
+        .service
+        .open("fixture", "my terminal", "me", Owner::Human)
+        .await?;
+    assert_eq!(fixture.count(&fixture.stats.connections), 2);
+
+    let lost = fixture.exec(&agent, "drop").await?;
+    assert_eq!(
+        lost.status,
+        JobStatus::Unknown,
+        "a lost connection is not a remote failure"
+    );
+    assert_eq!(lost.reason, Some(Reason::ConnectionLost));
+    assert_eq!(lost.exit_code, None);
+    let retry = fixture
+        .service
+        .run(By::Lease(&agent), Some("ok".into()), None, None)
+        .await;
+    assert_eq!(code(retry), ErrorCode::ConnectionFailed);
+
+    let job = fixture
+        .service
+        .run(By::Human(&mine.space), Some("ok".into()), None, None)
+        .await?;
+    let done = fixture
+        .service
+        .job_settled(&job, 5_000, 8_192, false)
+        .await?;
+    assert_eq!(done.status, JobStatus::Succeeded);
     Ok(())
 }
 
 #[tokio::test]
 async fn missing_status_and_signal_are_not_success() -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let missing = connection.run(request("missing-status")).await?;
+    let (_, lease) = fixture.agent().await?;
+    let missing = fixture.exec(&lease, "missing-status").await?;
     assert_eq!(missing.status, JobStatus::Unknown);
+    assert_eq!(missing.reason, Some(Reason::MissingExitStatus));
     assert_eq!(missing.exit_code, None);
-    assert_eq!(
-        missing.completion_reason,
-        CompletionReason::MissingExitStatus
-    );
-    let signaled = connection.run(request("signaled")).await?;
+    let signaled = fixture.exec(&lease, "signaled").await?;
     assert_eq!(signaled.status, JobStatus::Failed);
+    assert_eq!(signaled.reason, Some(Reason::ExitSignal));
     assert!(signaled.exit_signal.is_some());
-    connection.disconnect().await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn timeout_preserves_unknown_remote_outcome() -> anyhow::Result<()> {
+async fn working_directory_is_quoted_for_the_remote_shell() -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let mut spec = request("stall");
-    spec.timeout_ms = 50;
-    let result = tokio::time::timeout(Duration::from_secs(2), connection.run(spec)).await??;
-    assert_eq!(result.status, JobStatus::Unknown);
-    assert_eq!(
-        result.completion_reason,
-        CompletionReason::ObservationTimeout
-    );
-    assert_eq!(result.exit_code, None);
-    connection.disconnect().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn bounds_real_ssh_output_without_breaking_unicode() -> anyhow::Result<()> {
-    let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let mut spec = request("large");
-    spec.output_limit = 31;
-    let result = connection.run(spec).await?;
-    assert!(result.stdout.truncated);
-    assert!(result.stdout.retained_bytes <= 31);
-    assert!(result.stdout.total_bytes > 30_000);
-    assert!(result.stdout.text.ends_with("done"));
-    assert!(!result.stdout.invalid_utf8);
-    connection.disconnect().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn takeover_and_return_fence_actual_pty_transport_writes() -> anyhow::Result<()> {
-    let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let mut spec = request("interactive");
-    spec.pty = true;
-    let running = connection.start(spec).await?;
-    let input = running.input.clone();
-    let agent = running.initial_lease.clone();
-    input.write(&agent, b"agent\n").await?;
-    let human = input.transfer(InputOwner::Human).await?;
-    // These are late operations submitted only after takeover acknowledged.
-    let late: Vec<_> = (0..16)
-        .map(|_| {
-            let input = input.clone();
-            let lease = agent.clone();
-            tokio::spawn(async move { input.write(&lease, b"forbidden\n").await })
-        })
-        .collect();
-    for task in late {
-        assert!(matches!(task.await?, Err(Error::ControlRevoked)));
-    }
-    input.write(&human, b"human\n").await?;
-    input.resize(&human, 120, 40).await?;
-    let returned = input.transfer(InputOwner::Agent).await?;
-    assert!(matches!(
-        input.write(&human, b"forbidden\n").await,
-        Err(Error::ControlRevoked)
-    ));
-    assert!(matches!(
-        input.write(&agent, b"forbidden\n").await,
-        Err(Error::ControlRevoked)
-    ));
-    assert!(returned.epoch() > human.epoch());
-    input.write(&returned, b"finish\n").await?;
-    let result = running.collect().await?;
-    assert_eq!(result.status, JobStatus::Succeeded);
-    assert!(result.output_merged);
-    assert!(result.stdout.text.contains("agent\nhuman\nfinish\n"));
-    assert_eq!(
-        &*fixture.stats.received.lock().await,
-        b"agent\nhuman\nfinish\n"
-    );
-    assert_eq!(fixture.stats.ptys.load(Ordering::SeqCst), 1);
-    assert_eq!(fixture.stats.resizes.load(Ordering::SeqCst), 1);
-    connection.disconnect().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn lease_cannot_be_reused_on_another_channel() -> anyhow::Result<()> {
-    let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let first = connection.start(request("interactive")).await?;
-    let second = connection.start(request("interactive")).await?;
-    assert!(matches!(
-        second
-            .input
-            .write(&first.initial_lease, b"forbidden\n")
-            .await,
-        Err(Error::ControlRevoked)
-    ));
-    first.input.write(&first.initial_lease, b"finish\n").await?;
-    second
-        .input
-        .write(&second.initial_lease, b"finish\n")
+    let (_, lease) = fixture.agent().await?;
+    let by = By::Lease(&lease);
+    let job = fixture
+        .service
+        .run(by, Some("ok".into()), Some("/srv/it's here".into()), None)
         .await?;
-    assert_eq!(first.collect().await?.status, JobStatus::Succeeded);
-    assert_eq!(second.collect().await?.status, JobStatus::Succeeded);
-    connection.disconnect().await?;
+    let done = fixture.service.job_settled(&job, 5_000, 64, true).await?;
+    assert_eq!(done.status, JobStatus::Succeeded);
+    let relative = fixture
+        .service
+        .run(by, Some("ok".into()), Some("srv".into()), None)
+        .await;
+    assert_eq!(code(relative), ErrorCode::InvalidRequest);
+    let shell_without_pty = fixture.service.run(by, None, None, None).await;
+    assert_eq!(code(shell_without_pty), ErrorCode::InvalidRequest);
+    assert_eq!(fixture.count(&fixture.stats.executions), 1);
     Ok(())
 }
 
 #[tokio::test]
-async fn transfers_file_bytes_over_sftp_on_the_existing_connection() -> anyhow::Result<()> {
+async fn a_running_job_is_followed_with_cursors_and_an_expired_wait_is_not_a_failure()
+-> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let sftp = connection.sftp().await?;
-    let expected = "Vibe-SSH 文件传输 🚀".as_bytes();
-    sftp.write("fixture.txt", expected).await?;
-    assert_eq!(sftp.read("fixture.txt").await?, expected);
-    sftp.close().await?;
+    let (space, lease) = fixture.agent().await?;
+    let service = &fixture.service;
+    let job = service
+        .run(By::Lease(&lease), Some("interactive".into()), None, None)
+        .await?;
+
+    // A short initial wait returns the job still running: observation ended, the job did not.
+    let first = service.job_settled(&job, 300, 8_192, true).await?;
+    assert_eq!(first.status, JobStatus::Running);
+    assert_eq!(first.stdout.text, "interactive ready\n");
+
+    let idle = service.job_wait(&first.cursor, 8_192, 50, true).await?;
+    assert_eq!(idle.status, JobStatus::Running);
+    assert!(idle.stdout.text.is_empty() && !idle.stdout.truncated);
+    assert_eq!(idle.cursor, first.cursor);
+
+    service
+        .input(By::Lease(&lease), &job, b"more\n", false)
+        .await?;
+    let next = service.job_wait(&idle.cursor, 8_192, 5_000, true).await?;
+    assert_eq!(next.stdout.text, "more\n");
+
+    // A takeover wakes a pending wait so the agent learns about it immediately.
+    let waiting = {
+        let (service, cursor) = (service.clone(), next.cursor.clone());
+        tokio::spawn(async move { service.job_wait(&cursor, 8_192, 30_000, true).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    service.takeover(&space).await?;
+    let woken = tokio::time::timeout(Duration::from_secs(2), waiting).await???;
+    assert_eq!(woken.control.owner, Owner::Human);
+    assert_eq!(woken.control.lease, None, "the user's lease is never shown");
     assert_eq!(
-        connection.run(request("ok")).await?.status,
-        JobStatus::Succeeded
+        woken.status,
+        JobStatus::Running,
+        "takeover does not kill the process"
     );
-    assert_eq!(fixture.stats.connections.load(Ordering::SeqCst), 1);
-    connection.disconnect().await?;
+
+    let future = format!("{job}:999999:0");
+    assert!(
+        service
+            .job_wait(&future, 64, 5_000, true)
+            .await?
+            .stdout
+            .truncated
+    );
+    let foreign = service.job_wait("j1.zzzz:0:0", 64, 50, true).await;
+    assert_eq!(code(foreign), ErrorCode::InstanceMismatch);
+    Ok(())
+}
+
+#[tokio::test]
+async fn large_output_is_bounded_and_read_incrementally_without_breaking_unicode()
+-> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let (_, lease) = fixture.agent().await?;
+    let job = fixture
+        .service
+        .run(By::Lease(&lease), Some("large".into()), None, None)
+        .await?;
+    let tail = fixture.service.job_settled(&job, 5_000, 31, true).await?;
+    assert_eq!(tail.status, JobStatus::Succeeded);
+    assert!(tail.stdout.truncated && !tail.stdout.invalid_utf8);
+    assert!(tail.stdout.text.len() <= 31 && tail.stdout.text.ends_with("done"));
+    assert!(tail.stdout.total_bytes > 30_000);
+
+    let mut cursor = format!("{job}:0:0");
+    let mut text = String::new();
+    loop {
+        let page = fixture
+            .service
+            .job_wait(&cursor, 1_000, 1_000, true)
+            .await?;
+        assert!(!page.stdout.invalid_utf8 && !page.stdout.truncated);
+        assert!(page.stdout.text.len() <= 1_000);
+        text.push_str(&page.stdout.text);
+        cursor = page.cursor;
+        if !page.more {
+            break;
+        }
+    }
+    assert_eq!(text, "部署🚀".repeat(3_200) + "done");
     Ok(())
 }
 
 #[tokio::test]
 async fn rejected_pty_never_falls_through_to_running_the_command() -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    fixture.stats.deny_pty.store(true, Ordering::SeqCst);
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let mut spec = request("ok");
-    spec.pty = true;
-    assert!(matches!(
-        connection.start(spec).await,
-        Err(Error::ChannelRejected)
-    ));
-    assert_eq!(fixture.stats.executions.load(Ordering::SeqCst), 0);
-    connection.disconnect().await?;
+    let (_, lease) = fixture.agent().await?;
+    fixture
+        .stats
+        .deny_pty
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let result = fixture
+        .service
+        .run(By::Lease(&lease), Some("ok".into()), None, Some((80, 24)))
+        .await;
+    assert_eq!(code(result), ErrorCode::ChannelRejected);
+    assert_eq!(fixture.count(&fixture.stats.executions), 0);
     Ok(())
 }
 
 #[tokio::test]
-async fn oversized_input_is_rejected_before_transport_and_takeover_remains_available()
--> anyhow::Result<()> {
+async fn interrupt_is_a_request_and_the_remote_decides_the_outcome() -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;
-    let connection = SshConnection::connect(&fixture.config).await?;
-    let running = connection.start(request("interactive")).await?;
-    assert!(matches!(
-        running
-            .input
-            .write(&running.initial_lease, &vec![b'x'; 32_769])
-            .await,
-        Err(Error::InvalidRequest(_))
-    ));
-    let human = running.input.transfer(InputOwner::Human).await?;
-    running.input.write(&human, b"finish\n").await?;
-    assert_eq!(running.collect().await?.status, JobStatus::Succeeded);
-    assert_eq!(&*fixture.stats.received.lock().await, b"finish\n");
-    connection.disconnect().await?;
+    let (_, lease) = fixture.agent().await?;
+    let service = &fixture.service;
+    let by = By::Lease(&lease);
+
+    let plain = service.run(by, Some("stall".into()), None, None).await?;
+    service.interrupt(by, &plain).await?;
+    let ended = service.job_settled(&plain, 5_000, 64, true).await?;
+    assert!(ended.interrupt_requested);
+    assert_eq!(ended.reason, Some(Reason::ExitSignal));
+    assert_eq!(fixture.count(&fixture.stats.signals), 1);
+
+    let terminal = service
+        .run(by, Some("interactive".into()), None, Some((80, 24)))
+        .await?;
+    service.interrupt(by, &terminal).await?;
+    let ended = service.job_settled(&terminal, 5_000, 64, true).await?;
+    assert_eq!(
+        (ended.status, ended.exit_code),
+        (JobStatus::Failed, Some(130))
+    );
+    assert_eq!(ended.stream_mode, "merged");
+    assert_eq!(fixture.received(), b"\x03");
+
+    let late = service.interrupt(by, &terminal).await;
+    assert_eq!(code(late), ErrorCode::InvalidRequest);
     Ok(())
 }
