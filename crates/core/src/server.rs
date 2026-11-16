@@ -7,7 +7,7 @@ use std::{
 
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     sync::Semaphore,
     task::JoinHandle,
@@ -16,7 +16,7 @@ use vibe_ssh_protocol::{
     Call, DEFAULT_READ, ErrorBody, ErrorCode, MAX_FRAME, Owner, PROTOCOL_VERSION, Request,
 };
 
-use crate::{By, Error, Result, Service};
+use crate::{Archive, By, Error, Result, Service};
 
 /// `$VIBE_SSH_HOME`, or `~/.vibe-ssh`.
 pub fn default_home() -> PathBuf {
@@ -73,13 +73,17 @@ async fn handle(service: &Service, stream: UnixStream, admitted: bool) -> std::i
     let mut line = Vec::new();
     let mut reader = BufReader::new(read.take(MAX_FRAME as u64));
     let received =
-        tokio::time::timeout(Duration::from_secs(10), reader.read_until(b'\n', &mut line));
-    let reply = match received.await {
+        tokio::time::timeout(Duration::from_secs(10), reader.read_until(b'\n', &mut line)).await;
+    let reply = match received {
         _ if !admitted => Err(Error::new(
             ErrorCode::ResourceLimit,
             "too many concurrent requests; retry shortly",
         )),
-        Ok(Ok(_)) if line.ends_with(b"\n") => dispatch(service, &line).await,
+        Ok(Ok(_)) if line.ends_with(b"\n") => {
+            // An upload follows its request line and may be of any size.
+            reader.get_mut().set_limit(u64::MAX);
+            dispatch(service, &line, &mut reader).await
+        }
         _ => Err(Error::new(
             ErrorCode::InvalidRequest,
             "expected one newline-terminated JSON request of at most 2 MiB",
@@ -93,7 +97,11 @@ async fn handle(service: &Service, stream: UnixStream, admitted: bool) -> std::i
 }
 
 /// Everything reachable here acts as an agent. The user's operations are not on this socket.
-async fn dispatch(service: &Service, line: &[u8]) -> Result<Value> {
+async fn dispatch<A: AsyncRead + Unpin>(
+    service: &Service,
+    line: &[u8],
+    upload: &mut A,
+) -> Result<Value> {
     let invalid =
         |e: serde_json::Error| Error::new(ErrorCode::InvalidRequest, format!("request: {e}"));
     let value: Value = serde_json::from_slice(line).map_err(invalid)?;
@@ -144,15 +152,11 @@ async fn dispatch(service: &Service, line: &[u8]) -> Result<Value> {
         ),
         Call::Put {
             lease,
-            local,
             remote_dir,
-            excludes,
             wait_ms,
             tail_bytes,
         } => {
-            let job = service
-                .put(By::Lease(&lease), local.as_ref(), &remote_dir, &excludes)
-                .await?;
+            let job = service.put(By::Lease(&lease), upload, &remote_dir).await?;
             json!(service.job_settled(&job, wait_ms, tail_bytes, true).await?)
         }
         Call::JobInput {
@@ -173,8 +177,8 @@ async fn dispatch(service: &Service, line: &[u8]) -> Result<Value> {
     })
 }
 
-/// Sends one call to the running service.
-pub async fn request(home: &Path, call: Call) -> Result<Value> {
+/// Sends one call to the running service. An upload's archive is streamed right after it.
+pub async fn request(home: &Path, call: Call, archive: Option<Archive>) -> Result<Value> {
     let unavailable = |_| {
         Error::new(
             ErrorCode::ServiceUnavailable,
@@ -191,12 +195,19 @@ pub async fn request(home: &Path, call: Call) -> Result<Value> {
     .expect("requests serialize");
     line.push(b'\n');
     stream.write_all(&line).await.map_err(unavailable)?;
+    let sent = match archive {
+        Some(archive) => archive.send(&mut stream).await,
+        None => Ok(()),
+    };
+    // Without its closing frame, the end of the stream tells the service the upload was cut.
+    let _ = stream.shutdown().await;
     let mut reply = Vec::new();
-    stream.read_to_end(&mut reply).await.map_err(unavailable)?;
+    let _ = stream.read_to_end(&mut reply).await;
     let mut reply: Value = serde_json::from_slice(&reply)
         .map_err(|_| Error::new(ErrorCode::Internal, "malformed reply from the service"))?;
-    match serde_json::from_value::<ErrorBody>(reply["error"].take()) {
-        Ok(error) => Err(Error::new(error.code, error.message)),
-        Err(_) => Ok(reply["ok"].take()),
+    if let Ok(error) = serde_json::from_value::<ErrorBody>(reply["error"].take()) {
+        return Err(Error::new(error.code, error.message));
     }
+    sent?;
+    Ok(reply["ok"].take())
 }

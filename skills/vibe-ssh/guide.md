@@ -75,7 +75,9 @@ vibe-ssh put --lease <lease> . /srv/app --exclude node_modules --exclude .git --
 ```
 
 Uploads a file or the contents of a directory into the remote directory as one
-stream. It overwrites files with the same path and never deletes other remote
+stream. The command returns after everything has been sent, however long that
+takes; if you stop it midway the job ends as `failed` with reason
+`upload_incomplete` and the remote directory holds a partial copy. It overwrites files with the same path and never deletes other remote
 files. Always exclude dependency folders, `.git` and secret files unless the
 user asked for them. The result is a job like any other.
 

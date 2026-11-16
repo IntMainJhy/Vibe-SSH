@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use russh::{
     Channel, ChannelMsg, client,
@@ -54,13 +58,48 @@ impl client::Handler for Pinned {
     }
 }
 
+struct KeyProbe(Arc<Mutex<Option<(String, String)>>>);
+
+impl client::Handler for KeyProbe {
+    type Error = Error;
+
+    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool> {
+        let key = key.public_key();
+        *self.0.lock().unwrap() = Some((
+            key.algorithm().to_string(),
+            key.fingerprint(HashAlg::Sha256).to_string(),
+        ));
+        // Never proceed to authentication: this connection only exists to show the key.
+        Ok(false)
+    }
+}
+
+/// Fetches a server's host key as `(algorithm, fingerprint)` for the user to verify out of band.
+/// Human-only: it is not reachable from the agent socket, and it sends no credential.
+pub async fn host_key(host: &str, port: u16) -> Result<(String, String)> {
+    let seen = Arc::new(Mutex::new(None));
+    let probe = client::connect(Arc::default(), (host, port), KeyProbe(seen.clone()));
+    let _ = timeout(SETUP, probe).await;
+    let fingerprint = seen.lock().unwrap().take();
+    fingerprint.ok_or_else(|| {
+        Error::new(
+            ErrorCode::ConnectionFailed,
+            "could not reach the server or read its host key",
+        )
+    })
+}
+
 pub(crate) struct Connection {
     handle: client::Handle<Pinned>,
 }
 
 impl Connection {
-    /// `secret` is the password, or the passphrase of an encrypted identity file.
-    pub async fn connect(host: &Host, secret: Option<&str>) -> Result<Self> {
+    /// `secret` yields the password, or the passphrase of an encrypted identity file.
+    /// It is only consulted when the credential cannot be used without it.
+    pub async fn connect(
+        host: &Host,
+        secret: &(dyn Fn() -> Option<String> + Sync),
+    ) -> Result<Self> {
         let invalid = |message| Error::new(ErrorCode::InvalidRequest, message);
         if host.host.is_empty() || host.username.is_empty() || host.port == 0 {
             return Err(invalid("host, username and a nonzero port are required"));
@@ -73,7 +112,8 @@ impl Connection {
         let failed = |message| Error::new(ErrorCode::AuthenticationFailed, message);
         let key = match &host.identity_file {
             Some(path) => Some(
-                load_secret_key(path, secret)
+                load_secret_key(path, None)
+                    .or_else(|_| load_secret_key(path, secret().as_deref()))
                     .map_err(|_| failed("could not read the configured OpenSSH identity"))?,
             ),
             None => None,
@@ -103,7 +143,7 @@ impl Connection {
                         .await?
                 }
                 None => {
-                    let password = secret.ok_or_else(|| failed("no credential is available"))?;
+                    let password = secret().ok_or_else(|| failed("no credential is available"))?;
                     handle
                         .authenticate_password(&host.username, password)
                         .await?

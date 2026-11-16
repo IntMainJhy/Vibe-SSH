@@ -1,6 +1,7 @@
 /target/
-/node_modules/
-/dist/
+node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/gen/
 /.DS_Store
 /.vibe-ssh/
 .env
@@ -14,3 +15,4 @@
 *.sqlite-shm
 *.sqlite-wal
 /artifacts/local/
+/.claude/

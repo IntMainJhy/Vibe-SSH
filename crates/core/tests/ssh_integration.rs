@@ -24,6 +24,25 @@ async fn rejects_wrong_host_key_before_authentication() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn host_key_probe_shows_the_fingerprint_without_authenticating() -> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let host = fixture.service.load_hosts()?.remove(0);
+    assert_eq!(
+        vibe_ssh_core::host_key(&host.host, host.port).await?,
+        ("ssh-ed25519".to_owned(), host.host_key_sha256)
+    );
+    assert_eq!(fixture.count(&fixture.stats.authentications), 0);
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port();
+    assert_eq!(
+        code(vibe_ssh_core::host_key("127.0.0.1", closed).await),
+        ErrorCode::ConnectionFailed
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn refuses_a_rejected_identity_and_accepts_a_password_from_the_secret_source()
 -> anyhow::Result<()> {
     let fixture = Fixture::start().await?;

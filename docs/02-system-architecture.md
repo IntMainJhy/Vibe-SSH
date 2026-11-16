@@ -49,7 +49,7 @@ crates/
   core/           连接、执行、输出、控制权与适配器
   cli/            已实现能力的命令行入口
 apps/
-  desktop/        Tauri 壳与 React 界面，M1 开始
+  desktop/        Tauri 壳与 React 界面；同一个可执行文件被链接为 vibe-ssh 时就是 CLI
 skills/
   vibe-ssh/       与可用命令同步的 Skill
 docs/            产品、架构、契约、验收与决策

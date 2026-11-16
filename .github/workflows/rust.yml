@@ -1,4 +1,4 @@
-name: Rust kernel
+name: Verify
 
 on:
   push:
@@ -16,6 +16,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The desktop crate embeds the built frontend at compile time.
+      - run: npm ci && npm run build
+        working-directory: apps/desktop
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

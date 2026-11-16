@@ -19,6 +19,10 @@ const AGENT_DIRS: [&str; 2] = [".agents/skills", ".claude/skills"];
 fn link(target: &Path, link: &Path) -> std::result::Result<(), String> {
     match std::fs::read_link(link) {
         Ok(existing) if existing == target => Ok(()),
+        // A dangling link (the app was moved or rebuilt elsewhere) is ours to repair.
+        Ok(_) if !link.exists() => std::fs::remove_file(link)
+            .and_then(|()| symlink(target, link))
+            .map_err(|e| e.to_string()),
         Err(_) if !link.exists() => std::fs::create_dir_all(link.parent().expect("has a parent"))
             .and_then(|()| symlink(target, link))
             .map_err(|e| e.to_string()),

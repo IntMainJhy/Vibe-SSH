@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -18,7 +19,7 @@ use russh::{
 };
 use tempfile::TempDir;
 use tokio::{net::TcpListener, task::JoinHandle};
-use vibe_ssh_core::{By, Host, Service};
+use vibe_ssh_core::{Archive, By, Error, Host, Service};
 use vibe_ssh_protocol::{JobView, Owner};
 
 pub const PASSWORD: &str = "fixture-password";
@@ -136,6 +137,22 @@ impl Fixture {
             .run(By::Lease(lease), Some(command.into()), None, None)
             .await?;
         Ok(self.service.job_settled(&job, 5_000, 8_192, true).await?)
+    }
+
+    /// Packs `local` and streams it to the service the way the CLI does over the socket.
+    pub async fn upload(
+        &self,
+        by: By<'_>,
+        local: &Path,
+        remote_dir: &str,
+        excludes: &[String],
+    ) -> Result<String, Error> {
+        let archive = Archive::pack(local, excludes)?;
+        let (mut sender, receiver) = tokio::io::duplex(65_536);
+        let sending = tokio::spawn(async move { archive.send(&mut sender).await });
+        let job = self.service.put(by, receiver, remote_dir).await;
+        sending.await.expect("sender task")?;
+        job
     }
 
     pub fn count(&self, counter: &AtomicUsize) -> usize {

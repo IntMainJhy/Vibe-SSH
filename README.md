@@ -2,22 +2,25 @@
 
 Vibe-SSH 是供用户与外部 Agent 共同使用的 SSH 客户端。用户手动添加自己的服务器；Codex、Claude Code 等 Agent 读取项目提供的 Skill 后，通过本地 `vibe-ssh` 命令行执行操作。Agent 的每个目标是一个任务空间，有独立的 SSH 连接，用户可以同时使用自己的终端，并随时接管 Agent 的空间。
 
-项目不内置大模型或自主决策 Agent。技术路线为 Rust/Tokio、russh，桌面端计划使用 Tauri 2、React/TypeScript 和 xterm.js，首版只面向 macOS。
+项目不内置大模型或自主决策 Agent。技术路线为 Rust/Tokio、russh、Tauri 2、React/TypeScript 和 xterm.js，首版只面向 macOS。
 
 ## 当前阶段
 
-2026-11-16：Agent 闭环（M1）已实现：常驻服务、本地套接字、任务空间、控制权、上传、命令行和引导式 Skill。本机 26 项测试通过，其中 3 项经真实 OpenSSH 服务端到端验证。桌面应用（M2）尚未开始，所以目前没有界面，主机需要手写配置文件，接管只能由进程内调用触发。
+2026-11-17：Agent 闭环（M1）已实现并验证：任务空间、控制权、上传、命令行和引导式 Skill。macOS 桌面应用（M2）已实现：添加服务器并核对指纹、钥匙串、自己的终端、观看并接管 Agent 的空间。本机 28 项测试通过，其中 3 项使用真实 OpenSSH 服务。桌面应用的命令层已测试，真实窗口里的操作和钥匙串还没有经过人工验收；也还没有在真实 Linux 服务器上验证过。
 
 先阅读 [方案总览](docs/README.md)，实际能力与限制见 [开发与实现状态](docs/06-development-and-status.md)。
 
 ## 本地开发
 
 ```sh
+(cd apps/desktop && npm ci && npm run build)
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
-cargo run -p vibe-ssh-cli -- skill
+(cd apps/desktop && npx tauri build)
 ```
+
+桌面 crate 在编译时嵌入已构建的界面，所以要先构建前端。
 
 测试在回环地址启动临时 SSH 服务并生成临时密钥，不使用用户的 SSH 配置或真实服务器。端到端测试需要 macOS 自带的 `/usr/sbin/sshd`。
 

@@ -1,0 +1,25 @@
+[package]
+name = "vibe-ssh-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+security-framework = "3"
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+uuid.workspace = true
+vibe-ssh-cli.workspace = true
+vibe-ssh-core.workspace = true
+vibe-ssh-protocol.workspace = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

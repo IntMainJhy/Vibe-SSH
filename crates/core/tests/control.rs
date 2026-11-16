@@ -49,7 +49,6 @@ async fn takeover_and_return_fence_every_agent_write_path() -> anyhow::Result<()
     for task in late {
         assert_eq!(code(task.await?), ErrorCode::ControlRevoked);
     }
-    let executions = fixture.count(&fixture.stats.executions);
     let by = By::Lease(&agent);
     assert_eq!(
         code(service.run(by, Some("ok".into()), None, None).await),
@@ -71,10 +70,9 @@ async fn takeover_and_return_fence_every_agent_write_path() -> anyhow::Result<()
     );
     let local = fixture.home.path();
     assert_eq!(
-        code(service.put(by, local, "/srv/app", &[]).await),
+        code(fixture.upload(by, local, "/srv/app", &[]).await),
         ErrorCode::ControlRevoked
     );
-    assert_eq!(fixture.count(&fixture.stats.executions), executions);
     assert_eq!(
         service.job(&job, 64, true).await?.status,
         JobStatus::Running
@@ -114,6 +112,11 @@ async fn takeover_and_return_fence_every_agent_write_path() -> anyhow::Result<()
     assert!(done.stdout.text.contains("agent\nhuman\nfinish\n"));
     fixture.expect_received(b"agent\nhuman\nfinish\n").await;
     assert_eq!(fixture.count(&fixture.stats.resizes), 1);
+    assert_eq!(
+        *fixture.stats.commands.lock().unwrap(),
+        ["interactive"],
+        "no refused command or upload ever reached the server"
+    );
     Ok(())
 }
 
@@ -270,8 +273,7 @@ async fn upload_streams_a_directory_without_excluded_paths() -> anyhow::Result<(
     std::fs::write(project.path().join("页面/index.html"), "<h1>你好 🚀</h1>")?;
     let excludes = ["node_modules".to_owned(), ".env".to_owned()];
     let job = fixture
-        .service
-        .put(
+        .upload(
             By::Lease(&lease),
             project.path(),
             "/var/www/it's",
@@ -305,8 +307,7 @@ async fn upload_streams_a_directory_without_excluded_paths() -> anyhow::Result<(
 
     let missing = project.path().join("nope");
     let result = fixture
-        .service
-        .put(By::Lease(&lease), &missing, "/srv", &[])
+        .upload(By::Lease(&lease), &missing, "/srv", &[])
         .await;
     assert_eq!(code(result), ErrorCode::NotFound);
     Ok(())
@@ -317,13 +318,19 @@ async fn takeover_stops_an_upload_in_progress_and_the_job_says_so() -> anyhow::R
     let fixture = Fixture::start().await?;
     let (space, lease) = fixture.agent().await?;
     let project = tempfile::tempdir()?;
-    let size = 64 * 1024 * 1024;
-    std::fs::File::create(project.path().join("big.bin"))?.set_len(size)?;
-    let job = fixture
-        .service
-        .put(By::Lease(&lease), project.path(), "/srv/app", &[])
-        .await?;
-    fixture.service.takeover(&space).await?;
+    // Real bytes: tar would store a sparse file as a hole and finish before the takeover.
+    let size: u64 = 32 * 1024 * 1024;
+    std::fs::write(project.path().join("big.bin"), vec![0xa5; size as usize])?;
+    let upload = fixture.upload(By::Lease(&lease), project.path(), "/srv/app", &[]);
+    let takeover = async {
+        while fixture.received().is_empty() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        fixture.service.takeover(&space).await
+    };
+    let (job, taken) = tokio::join!(upload, takeover);
+    taken?;
+    let job = job?;
     let ended = fixture
         .service
         .job_settled(&job, 10_000, 8_192, true)

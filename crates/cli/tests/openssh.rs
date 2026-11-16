@@ -2,6 +2,9 @@
 //! on loopback with temporary keys. Nothing here reads the user's SSH configuration.
 #![cfg(target_os = "macos")]
 
+#[path = "support/sshd.rs"]
+mod sshd;
+
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
@@ -10,107 +13,39 @@ use std::{
 };
 
 use serde_json::Value;
-use tempfile::TempDir;
+use sshd::Sshd;
 use tokio::io::AsyncWriteExt;
-use vibe_ssh_core::{By, Host, Service, serve};
+use vibe_ssh_core::{By, Service, serve};
 use vibe_ssh_protocol::Owner;
 
-const PASSPHRASE: &str = "temporary passphrase";
-
 struct Env {
-    dir: TempDir,
-    sshd: std::process::Child,
+    sshd: Sshd,
     service: Arc<Service>,
-}
-
-impl Drop for Env {
-    fn drop(&mut self) {
-        let _ = self.sshd.kill();
-        let _ = self.sshd.wait();
-    }
-}
-
-fn keygen(path: &Path, passphrase: &str) {
-    let status = std::process::Command::new("/usr/bin/ssh-keygen")
-        .args(["-q", "-t", "ed25519", "-N", passphrase, "-f"])
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(status.success());
 }
 
 impl Env {
     async fn start() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let at = |name: &str| dir.path().join(name);
-        keygen(&at("host_key"), "");
-        keygen(&at("id_plain"), "");
-        keygen(&at("id_encrypted"), PASSPHRASE);
-        let keys = [at("id_plain.pub"), at("id_encrypted.pub")]
-            .map(|p| std::fs::read_to_string(p).unwrap());
-        std::fs::write(at("authorized_keys"), keys.concat()).unwrap();
-        let listing = std::process::Command::new("/usr/bin/ssh-keygen")
-            .arg("-lf")
-            .arg(at("host_key.pub"))
-            .output()
-            .unwrap();
-        let fingerprint = String::from_utf8(listing.stdout).unwrap();
-        let fingerprint = fingerprint.split_whitespace().nth(1).unwrap().to_owned();
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let config = format!(
-            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nPidFile {}\nAuthorizedKeysFile {}\n\
-             PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nLogLevel ERROR\n",
-            at("host_key").display(),
-            at("sshd.pid").display(),
-            at("authorized_keys").display(),
-        );
-        std::fs::write(at("sshd_config"), config).unwrap();
-        let sshd = std::process::Command::new("/usr/sbin/sshd")
-            .args(["-D", "-e", "-f"])
-            .arg(at("sshd_config"))
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        for _ in 0..100 {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        let home = at("home");
+        let sshd = Sshd::start();
+        let home = sshd.path("home");
         std::fs::create_dir(&home).unwrap();
-        let host = |id: &str, key: &str, agent_access| Host {
-            id: id.into(),
-            name: id.into(),
-            host: "127.0.0.1".into(),
-            port,
-            username: std::env::var("USER").unwrap(),
-            identity_file: Some(at(key)),
-            host_key_sha256: fingerprint.clone(),
-            agent_access,
-        };
         // The embedding process (the app) supplies secrets; agents never see them.
         let service = Service::new(
             home,
-            Box::new(|host| (host.id == "encrypted").then(|| PASSPHRASE.to_owned())),
+            Box::new(|host| (host.id == "encrypted").then(|| sshd::PASSPHRASE.to_owned())),
         );
         service
             .save_hosts(&[
-                host("box", "id_plain", true),
-                host("encrypted", "id_encrypted", true),
-                host("mine", "id_plain", false),
+                sshd.host("box", "id_plain", true),
+                sshd.host("encrypted", "id_encrypted", true),
+                sshd.host("mine", "id_plain", false),
             ])
             .unwrap();
         serve(service.clone()).await.unwrap();
-        Self { dir, sshd, service }
+        Self { sshd, service }
     }
 
     fn remote(&self, name: &str) -> PathBuf {
-        let path = self.dir.path().join("remote").join(name);
+        let path = self.sshd.path("remote").join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         path
     }
@@ -285,6 +220,58 @@ async fn agent_runs_uploads_and_follows_jobs_on_real_openssh() {
     assert_eq!(
         text(&job["stdout"]["text"]),
         "<h1>你好 🚀</h1>\nexisting.txt 页面 "
+    );
+
+    // An upload whose sender dies midway is recorded as incomplete, never as a success.
+    let big = env.remote("../big");
+    std::fs::create_dir_all(&big).unwrap();
+    // Real bytes: tar would store a sparse file as a hole and finish before it can be cut.
+    let size: u64 = 64 * 1024 * 1024;
+    std::fs::write(big.join("blob"), vec![0xa5; size as usize]).unwrap();
+    let partial = env.remote("partial");
+    let mut sender = std::process::Command::new(env!("CARGO_BIN_EXE_vibe-ssh"))
+        .args([
+            "put",
+            "--lease",
+            &lease,
+            big.to_str().unwrap(),
+            partial.to_str().unwrap(),
+        ])
+        .env("VIBE_SSH_HOME", env.service.home())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let cut = loop {
+        let space = env.ok(&["space", "list"]).await;
+        let last = space[0]["jobs"].as_array().unwrap().last().unwrap().clone();
+        if text(&last["command"]).contains("partial") && partial.join("blob").exists() {
+            break text(&last["job"]);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    sender.kill().unwrap();
+    sender.wait().unwrap();
+    let (code, ended, _) = env
+        .cli(
+            &["job", "wait", &format!("{cut}:0:0"), "--timeout", "20"],
+            None,
+        )
+        .await;
+    assert_eq!(code, 1, "{ended}");
+    assert_eq!(
+        (
+            ended["status"].as_str(),
+            ended["reason"].as_str(),
+            &ended["exit_code"]
+        ),
+        (Some("failed"), Some("upload_incomplete"), &Value::Null)
+    );
+    // The remote tar pads a truncated entry to its declared size, so compare content, not length.
+    let copy = std::fs::read(partial.join("blob")).unwrap();
+    assert!(
+        copy.len() < size as usize || copy.last() != Some(&0xa5),
+        "the copy is partial"
     );
 
     // A long job outlives the first wait and is followed by cursor without re-running it.

@@ -5,10 +5,12 @@ mod server;
 mod service;
 pub mod skill;
 mod ssh;
+mod upload;
 
 pub use server::{default_home, request, serve, socket_path};
-pub use service::{By, Secrets, Service};
-pub use ssh::Host;
+pub use service::{By, Chunk, Secrets, Service};
+pub use ssh::{Host, host_key};
+pub use upload::Archive;
 pub use vibe_ssh_protocol::ErrorCode;
 
 #[derive(Debug, thiserror::Error)]

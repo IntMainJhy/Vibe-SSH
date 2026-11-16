@@ -1,8 +1,7 @@
 use std::{
     collections::BTreeMap,
     future::Future,
-    path::{Path, PathBuf},
-    process::Stdio,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -10,7 +9,7 @@ use std::{
 use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use serde_json::{Value, json};
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncRead, AsyncReadExt},
     sync::{Notify, watch},
 };
 use uuid::Uuid;
@@ -27,6 +26,8 @@ use crate::{
 
 /// Bound on one transport submission made while holding a space's control lock.
 const SUBMIT: Duration = Duration::from_secs(3);
+/// How long an upload may wait for its next frame before it counts as cut.
+const UPLOAD_IDLE: Duration = Duration::from_secs(60);
 const LOG_LIMIT: usize = 1_048_576;
 const MAX_SPACES: usize = 32;
 /// OpenSSH allows 10 sessions per connection by default.
@@ -36,6 +37,19 @@ const MAX_JOBS: usize = 64;
 
 /// Returns the password or key passphrase for a host, if the embedding process has one.
 pub type Secrets = Box<dyn Fn(&Host) -> Option<String> + Send + Sync>;
+
+/// Raw output for a terminal renderer. Unlike `JobView` it may split a UTF-8 character.
+#[derive(serde::Serialize)]
+pub struct Chunk {
+    pub out: Vec<u8>,
+    pub err: Vec<u8>,
+    /// Offsets to pass as `from` next time.
+    pub next: (u64, u64),
+    /// Earlier output was rotated out before it could be read.
+    pub gap: bool,
+    pub status: JobStatus,
+    pub exit_code: Option<u32>,
+}
 
 /// Who is writing. `Human` is only constructible by the trusted embedding process;
 /// the agent socket can express nothing but leases.
@@ -72,6 +86,8 @@ struct Progress {
     exit_signal: Option<String>,
     interrupt_requested: bool,
     elapsed_ms: Option<u64>,
+    /// Why an upload into this job was cut locally. Published together with the final status.
+    cut: Option<String>,
 }
 
 struct Job {
@@ -261,7 +277,7 @@ impl Service {
         }
         // Each space owns its connection: an agent's traffic never shares a transport
         // with the user's terminals or with another agent.
-        let conn = Connection::connect(&host, (self.secrets)(&host).as_deref()).await?;
+        let conn = Connection::connect(&host, &|| (self.secrets)(&host)).await?;
         let space = {
             let mut registry = self.registry.lock().unwrap();
             registry.next += 1;
@@ -462,6 +478,7 @@ impl Service {
                     exit_signal: None,
                     interrupt_requested: false,
                     elapsed_ms: None,
+                    cut: None,
                 }),
             });
             registry.jobs.insert(job.id, job.clone());
@@ -506,14 +523,15 @@ impl Service {
         Ok(())
     }
 
-    /// Uploads a local file or directory into `remote_dir` as one tar stream, as a job.
-    /// Existing remote files that are not in the upload are never deleted.
-    pub async fn put(
+    /// Unpacks a framed tar stream (see `Archive::send`) into `remote_dir` as a job, and
+    /// returns its id once the stream has ended. Existing remote files that are not in the
+    /// archive are never deleted. A stream that stops without its closing frame leaves the
+    /// job failed as `upload_incomplete`.
+    pub async fn put<A: AsyncRead + Unpin>(
         &self,
         by: By<'_>,
-        local: &Path,
+        mut archive: A,
         remote_dir: &str,
-        excludes: &[String],
     ) -> Result<String> {
         if !remote_dir.starts_with('/') || remote_dir.contains('\0') {
             return err(
@@ -521,95 +539,52 @@ impl Service {
                 "remote directory must be an absolute NUL-free POSIX path",
             );
         }
-        let local = local
-            .canonicalize()
-            .map_err(|e| Error::new(ErrorCode::NotFound, format!("local path: {e}")))?;
-        let (root, entry) = match (local.is_dir(), local.parent(), local.file_name()) {
-            (true, ..) => (local.as_path(), ".".as_ref()),
-            (false, Some(parent), Some(name)) => (parent, name),
-            _ => {
-                return err(
-                    ErrorCode::InvalidRequest,
-                    "local path must be a file or directory",
-                );
-            }
-        };
-        let mut tar = tokio::process::Command::new("/usr/bin/tar");
-        // Keep macOS resource forks and extended attributes out of the archive.
-        tar.env("COPYFILE_DISABLE", "1")
-            .args(["--no-xattrs", "--no-mac-metadata", "-cf", "-", "-C"])
-            .arg(root);
-        for pattern in excludes {
-            tar.arg("--exclude").arg(pattern);
-        }
-        let mut tar = tar
-            .arg("--")
-            .arg(entry)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| Error::new(ErrorCode::Internal, format!("local tar: {e}")))?;
         let directory = quote_posix(remote_dir);
         // -o: never apply the local machine's file ownership on the server.
         let command = format!("mkdir -p {directory} && tar -xof - -C {directory}");
         let id = self.run(by, Some(command), None, None).await?;
         let job = self.find_job(&id, false)?;
-        let (agent, who) = match by {
-            By::Lease(lease) => (true, lease.to_owned()),
-            By::Human(space) => (false, space.to_owned()),
+        let mut chunk = vec![0; MAX_INPUT];
+        let stopped = loop {
+            let frame = async {
+                let length = archive.read_u32().await? as usize;
+                if length > chunk.len() {
+                    return Err(std::io::Error::other("oversized frame"));
+                }
+                archive.read_exact(&mut chunk[..length]).await?;
+                Ok(length)
+            };
+            let length = match tokio::time::timeout(UPLOAD_IDLE, frame).await {
+                Ok(Ok(0)) => break None,
+                Ok(Ok(length)) => length,
+                Ok(Err(error)) => break Some(format!("the sender stopped: {error}")),
+                Err(_) => break Some("the sender stalled".to_owned()),
+            };
+            if !job.running() {
+                // The remote tar already ended (for example a full disk); its own result stands.
+                return Ok(id);
+            }
+            // Every chunk passes the same gate as typed input: a takeover stops the upload.
+            let control = job.space.control.lock().await;
+            let sent = match check(&control, &by) {
+                Ok(()) => submit(job.writer.data(&chunk[..length])).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = sent {
+                break Some(error.message);
+            }
         };
-        tokio::spawn(async move {
-            let by = if agent {
-                By::Lease(&who)
-            } else {
-                By::Human(&who)
-            };
-            let mut archive = tar.stdout.take().expect("piped");
-            let mut chunk = vec![0; 16 * 1024];
-            let stopped = loop {
-                match archive.read(&mut chunk).await {
-                    Ok(0) => break None,
-                    Ok(read) => {
-                        // Every chunk passes the same gate as typed input: a takeover stops the upload.
-                        let control = job.space.control.lock().await;
-                        let sent = match check(&control, &by) {
-                            Ok(()) => submit(job.writer.data(&chunk[..read])).await,
-                            Err(error) => Err(error),
-                        };
-                        if let Err(error) = sent {
-                            break Some(error.message);
-                        }
-                    }
-                    Err(error) => break Some(error.to_string()),
-                }
-            };
-            // Close the pipe first: a tar blocked on a full pipe would otherwise never exit.
-            drop(archive);
-            if stopped.is_some() {
-                let _ = tar.start_kill();
+        match stopped {
+            None => {
+                let _ = submit(job.writer.eof()).await;
             }
-            let local = tar.wait_with_output().await;
-            let stopped = stopped.or_else(|| match local {
-                Ok(output) if output.status.success() => None,
-                Ok(output) => Some(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
-                Err(error) => Some(error.to_string()),
-            });
-            match stopped {
-                None => {
-                    let _ = submit(job.writer.eof()).await;
-                }
-                Some(why) => {
-                    // The remote archive is incomplete. Say so in the job instead of guessing.
-                    let note = format!("\n[vibe-ssh] upload stopped before completion: {why}\n");
-                    job.progress.lock().unwrap().stderr.append(note.as_bytes());
-                    // A cut on a record boundary can still unpack cleanly, so the remote
-                    // exit status must not get to call this upload a success.
-                    job.abort.notify_one();
-                }
+            Some(why) => {
+                job.progress.lock().unwrap().cut = Some(why);
+                // A cut on a record boundary can still unpack cleanly, so the remote
+                // exit status must not get to call this upload a success.
+                job.abort.notify_one();
             }
-        });
+        }
         Ok(id)
     }
 
@@ -688,16 +663,24 @@ impl Service {
         Ok(self.job_view(&job, None, tail).await)
     }
 
-    /// Raw bytes for a terminal renderer: `(bytes, next offset, a gap precedes them)`.
-    pub fn job_bytes(&self, job: &str, from: u64) -> Result<(Vec<u8>, u64, bool)> {
+    /// Raw bytes after `from` for a terminal renderer, waiting up to `wait_ms` for something new.
+    pub async fn job_stream(&self, job: &str, from: (u64, u64), wait_ms: u64) -> Result<Chunk> {
         let job = self.find_job(job, false)?;
+        settle(&job, wait_ms, |p| {
+            p.stdout.total() > from.0 || p.stderr.total() > from.1
+        })
+        .await;
         let progress = job.progress.lock().unwrap();
-        Ok(progress.stdout.bytes(from, MAX_READ))
-    }
-
-    /// Fires on output, completion and control changes of the job's space.
-    pub fn job_events(&self, job: &str) -> Result<watch::Receiver<u64>> {
-        Ok(self.find_job(job, false)?.space.changed.subscribe())
+        let (out, out_next, out_gap) = progress.stdout.bytes(from.0, 65_536);
+        let (err, err_next, err_gap) = progress.stderr.bytes(from.1, 65_536);
+        Ok(Chunk {
+            out,
+            err,
+            next: (out_next, err_next),
+            gap: out_gap || err_gap,
+            status: progress.status,
+            exit_code: progress.exit_code,
+        })
     }
 
     // ---- internals ----
@@ -938,6 +921,10 @@ async fn pump(job: Arc<Job>, mut reader: ChannelReadHalf, events: watch::Sender<
     let _ = job.writer.close().await;
     {
         let mut progress = job.progress.lock().unwrap();
+        if let Some(why) = progress.cut.take() {
+            let note = format!("\n[vibe-ssh] upload stopped before completion: {why}\n");
+            progress.stderr.append(note.as_bytes());
+        }
         (progress.status, progress.reason) = (outcome.0, Some(outcome.1));
         progress.exit_code = exit_code;
         progress.exit_signal = exit_signal;

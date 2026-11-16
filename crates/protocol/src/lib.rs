@@ -192,11 +192,11 @@ pub enum Call {
         max_bytes: usize,
         timeout_ms: u64,
     },
+    /// Followed on the same connection by the archive as length-prefixed frames.
+    /// The service never opens local files on a caller's behalf.
     Put {
         lease: String,
-        local: String,
         remote_dir: String,
-        excludes: Vec<String>,
         wait_ms: u64,
         tail_bytes: usize,
     },
