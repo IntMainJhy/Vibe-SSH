@@ -1,0 +1,24 @@
+[package]
+name = "vibe-ssh-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+russh.workspace = true
+russh-sftp.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+vibe-ssh-protocol.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

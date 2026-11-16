@@ -1,0 +1,21 @@
+[package]
+name = "vibe-ssh-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vibe-ssh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+vibe-ssh-core.workspace = true
+vibe-ssh-protocol.workspace = true
+
+[lints]
+workspace = true
