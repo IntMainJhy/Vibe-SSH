@@ -8,6 +8,10 @@ The white tile, graphite connection segments, cobalt light and subtle terminal/s
 
 To export again, load the SVG in a browser and render it to a PNG canvas at the dimensions above. Use system sans-serif fonts with PingFang SC or Microsoft YaHei for Chinese. Check text, shadows and clipping in the PNG, then keep the README image paths aligned in both languages.
 
+## Platform badge
+
+[platform-macos.svg](platform-macos.svg) is a project-owned static badge for the supported desktop platform. Keeping it in the repository avoids third-party image-proxy failures for this fixed value. Release and CI badges remain live.
+
 ## Application screenshots
 
 `workspace.png` and `session.png` show the application frontend at source revision `6db2997249d1043088ee02571e72ad40e182dcf5`, captured on 2026-11-17 through its browser development preview.

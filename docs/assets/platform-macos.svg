@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="148" height="28" viewBox="0 0 148 28" role="img" aria-labelledby="platform-title">
+  <title id="platform-title">platform: macOS</title>
+  <rect width="91" height="28" fill="#555"/>
+  <rect x="91" width="57" height="28" fill="#111"/>
+  <g fill="#fff" font-family="Verdana, Geneva, 'DejaVu Sans', sans-serif" font-size="14" text-anchor="middle">
+    <text x="45.5" y="19">platform</text>
+    <text x="119.5" y="19">macOS</text>
+  </g>
+</svg>
