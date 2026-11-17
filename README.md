@@ -31,7 +31,7 @@
 <p align="center">
   <strong>English</strong> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a>
   &nbsp;|&nbsp;
-  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit mirror</a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit</a>
 </p>
 
 <p align="center">Your terminals and agent task spaces stay separate, each with its own SSH connection.</p>

@@ -31,7 +31,7 @@
 <p align="center">
   <a href="README.md" lang="en">English</a> · <strong>简体中文</strong>
   &nbsp;|&nbsp;
-  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub 主仓库</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit 镜像</a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub 主仓库</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit</a>
 </p>
 
 <p align="center">你的日常终端与 Agent 任务空间使用独立 SSH 连接，可以并行工作。</p>

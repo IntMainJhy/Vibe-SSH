@@ -27,17 +27,26 @@ GitHub repository search supports the repository name, description and Topics, a
 
 Sources: [repository search](https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories) and [repository Topics](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics).
 
-## AtomGit mirror
+## AtomGit repository and manual synchronization
 
-Public mirror: <https://gitcode.com/InMainJhy/Vibe-SSH>. The AtomGit account is `InMainJhy`; the GitHub account is `IntMainJhy`.
+Public repository: <https://gitcode.com/InMainJhy/Vibe-SSH>. The AtomGit account is `InMainJhy`; the GitHub account is `IntMainJhy`.
 
-AtomGit's repository settings use a public **Pull** mirror from `https://github.com/IntMainJhy/Vibe-SSH.git`. Force-updating diverged branches is disabled. GitHub is the source of truth; submit code changes there, then inspect mirror status or use **立即同步** in AtomGit's mirror settings when needed. No GitHub access token is needed for this public source.
+**The owner requested manual synchronization.** The previously configured AtomGit Pull mirror has been removed. Keep automatic Pull/Push mirroring disabled; do not recreate it or add scheduled synchronization without a new explicit request.
 
-The initial synchronization on 2026-11-17 matched main commit `c0dd063ab40331cc2cf169dc04f1ccbb1621a216`, all six published branches and four preview tags. Git mirroring copies source, commit history, branches and tags. It does not copy GitHub Issues, Discussions, Actions runs or release attachment files; download links continue to point to GitHub Releases.
+GitHub is the source of truth. Publish reviewed changes there first, then push the published main branch to AtomGit using the existing `atomgit` remote at `https://gitcode.com/InMainJhy/Vibe-SSH.git`:
+
+```sh
+git fetch origin
+git push atomgit refs/remotes/origin/main:refs/heads/main
+git ls-remote origin refs/heads/main
+git ls-remote atomgit refs/heads/main
+```
+
+The remote name is only a local Git alias; it does not enable automatic synchronization. Check that both main-branch SHAs match before reporting completion. The same commit SHA guarantees identical tracked files, including both READMEs and the promotional assets. If a push is rejected because the destination diverged, inspect the differences before proceeding; do not force push or use `git push --mirror`.
+
+Synchronize other published branches or tags explicitly when requested, preserving their existing commit IDs. Git pushes do not copy GitHub Issues, Discussions, Actions runs or release attachment files; download links continue to point to GitHub Releases.
 
 AtomGit's description records the external-agent workflow, manual server setup, human takeover, Rust/Tauri stack, MIT license and macOS preview scope. Its five project tags are `ssh`, `ai-agents`, `codex`, `sftp` and `devops`. The project URL points to the GitHub Releases page.
-
-The local Git remote is named `atomgit`, using `https://gitcode.com/InMainJhy/Vibe-SSH.git`. Do not use a force push or `git push --mirror` to synchronize the repository.
 
 ## Community entry points
 
