@@ -1,53 +1,186 @@
 # Vibe-SSH
 
-Vibe-SSH 是供用户与外部 Agent 共同使用的 SSH 客户端。用户手动添加自己的服务器；Codex、Claude Code 等 Agent 读取项目提供的 Skill 后，通过 `vibe-ssh` 命令行执行操作。Agent 的每个目标是一个任务空间，有独立的 SSH 连接，用户可以同时使用自己的终端，并随时接管 Agent 的空间。
+**A desktop SSH client for people and external AI agents.**
 
-产品定位是日常 SSH 客户端，提供终端、文件传输和服务器状态，外部 Agent 通过 Skill 接入。项目不内置大模型或自主决策 Agent。技术路线为 Rust/Tokio、russh、Tauri 2、React/TypeScript 和 xterm.js，首版只面向 macOS。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Preview release](https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview)](https://github.com/IntMainJhy/Vibe-SSH/releases)
+[![Verify](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-111111.svg)](docs/installation.en.md)
 
-## 安装预览版
+English · [简体中文](README.zh-CN.md)
 
-下载 [GitHub Releases](https://github.com/IntMainJhy/Vibe-SSH/releases) 中对应 Apple 芯片或 Intel 的 macOS 包，按 [安装说明](docs/installation.md) 把应用移入“应用程序”后启动。Skill 与 CLI 随首次启动及升级自动同步，不需要单独安装按钮。预览包暂未通过 Developer ID 签名和 Apple 公证，系统可能要求单次允许打开。
+Vibe-SSH is an open-source macOS SSH/SFTP client that gives **Codex, Claude Code and other command-line AI agents** a Skill-based interface to your servers. Add your own servers manually, let an agent run deployment or troubleshooting tasks, and watch its commands and output in the app. Take over its task space whenever you need to.
 
-## 当前阶段
+Your own terminals remain separate from agent task spaces. Each space has its own SSH connection, and the client enforces who can write to it.
 
-2026-11-17：Agent 闭环已实现，并在真实 Linux 服务器（隔离的 Debian 13 虚拟机）上验证：执行、终端、上传、中断、接管、sudo 密码交接。macOS 桌面应用已实现：添加服务器并核对指纹、钥匙串、自己的终端、观看并接管 Agent 的空间。静态站点（Nginx）和 Docker Compose 两个部署流程已写入 Skill，并在 Linux 上照原文跑通，包括失败与恢复。
+[Download the macOS preview](https://github.com/IntMainJhy/Vibe-SSH/releases) · [Installation](docs/installation.en.md) · [Agent guide](skills/vibe-ssh/guide.md) · [Roadmap](ROADMAP.md) · [Contribute](CONTRIBUTING.md)
 
-还没有的证据：桌面窗口里的点击操作和钥匙串没有经过人工验收；没有真实 Agent 凭 Skill 独立完成过部署；没有在公网服务器上验证过。
+> **Preview software:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
 
-0.2.0-preview.4 参考云集群工作台重新设计界面：窄导航、深浅面板、真实状态总览、独立服务器/会话列表、全局搜索与失败任务定位，Agent 提示占独立底栏以免遮挡内容。使用黑白工作空间，支持服务器与空间搜索、终端 / 文件 / 监控切换、手动重连、外观切换、终端字号记忆和完整命令复制。SFTP 文件页提供浏览、单文件下载、多选上传、新建目录、重命名和删除文件/空目录；同名内容不覆盖。监控显示 Linux CPU、内存、交换空间、负载、运行时间与根分区用量，离开页面暂停后续采样。Agent 运行时保留全局流光边框和跳回空间入口，切页不结束任务。长文本输入按 Unicode 边界分块，发送失败会显示错误并停止后续排队输入。
+![Vibe-SSH workspace with server navigation, sessions and agent activity](docs/assets/workspace.png)
 
-M3 文件编辑切片：文件页可查看和编辑不超过 1 MiB 的 UTF-8 普通文本，保留 BOM / LF / CRLF，保存前检查内容摘要和元数据，生成原文件备份并替换；冲突和控制权变化会保留草稿并拒绝覆盖。混合换行、缺少安全保存扩展的服务器只支持预览。备份与版本检查的跨进程边界见 [ADR 0004](docs/adr/0004-remote-text-editing.md)。
+*The actual application interface running with development sample data. Server names, addresses and task output in the screenshot are examples.*
 
-先阅读 [方案总览](docs/README.md)，实际能力与限制见 [开发与实现状态](docs/06-development-and-status.md)。
+## What you can do
 
-## 本地开发
+| Capability | How it works |
+| --- | --- |
+| Use SSH yourself | Manually configure hosts, verify fingerprints, and open tabbed terminals with search, themes and adjustable text size. |
+| Give an agent a server task | Enable access for a host. An external agent loads the Skill and uses the version-matched CLI. |
+| See the work happen | Inspect commands, task state and terminal output while the agent works. |
+| Take over and return control | Taking over blocks new agent writes in that space. Returning control issues a new lease; old leases stay invalid. |
+| Move and edit files | Browse SFTP directories, transfer files, and edit bounded UTF-8 text with version checks and backups. |
+| Inspect Linux resources | View CPU, memory, swap, load, uptime and root-filesystem usage. Samples are collected while monitoring is visible. |
+| Deploy a website | Use the Skill's static-site/Nginx or Docker Compose reference flow, with service checks and failure handling. |
+
+Vibe-SSH connects the AI agent you already use to your SSH workflow. The application itself does not run a model or make autonomous deployment decisions.
+
+## Install and connect
+
+1. Download a preview from [Releases](https://github.com/IntMainJhy/Vibe-SSH/releases). Choose `macos-arm64` for Apple silicon or `macos-x86_64` for Intel. Each release includes DMG/ZIP packages and `SHA256SUMS.txt`.
+2. Move `Vibe-SSH.app` to **Applications** and open it. Follow the [installation guide](docs/installation.en.md) for checksum verification and macOS's per-app opening procedure.
+3. Add a server yourself: name, address, port, username, and password or private key. Verify the host fingerprint through a trusted channel before saving.
+4. Open a terminal for your own work. To let an agent use the server, enable agent access for that host.
+
+On startup and upgrade, the app synchronizes its Skill links for compatible agents and its CLI link at `~/.local/bin/vibe-ssh`. Unrelated existing entries are preserved. Paths and uninstall behavior are in the installation guide.
+
+## Let Codex or Claude Code operate it
+
+Keep Vibe-SSH running, then give your agent a server and a goal. For example:
+
+> Use Vibe-SSH to deploy this project's built site to my blog server. Check the existing configuration, preserve the working release, and verify the URL after deployment.
+
+The agent starts by reading the installed guide:
 
 ```sh
-(cd apps/desktop && npm ci && npm test && npm run build)
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo fmt --all -- --check
-(cd apps/desktop && npx tauri build)
+vibe-ssh skill
+# If the command is not on PATH:
+"$HOME/.local/bin/vibe-ssh" skill
 ```
 
-桌面 crate 在编译时嵌入已构建的界面，所以要先构建前端。
+That guide describes the installed version: host discovery, one task space per goal, command execution, incremental output, uploads and handoff. Compatible agents that can read Skills and execute local commands can use the CLI; independent end-to-end evidence still needs to be recorded for each agent.
 
-需要一台真实的 Linux 服务器来试用或测试时，`scripts/linux-vm.sh up` 会在本机启动一台 Debian 虚拟机（需要 Apple 芯片的 Mac 和 `brew install qemu`），`scripts/linux-vm.sh hosts` 输出可以直接放进 `~/.vibe-ssh/hosts.json` 的主机配置。
+<details>
+<summary>Example CLI interaction</summary>
 
-测试在回环地址启动临时 SSH 服务并生成临时密钥，不使用用户的 SSH 配置或真实服务器。端到端测试需要 macOS 自带的 `/usr/sbin/sshd`。
+The placeholders come from the preceding command's JSON response. Agents manage these IDs and leases during normal use.
 
-## 产品必须保持的边界
+```sh
+vibe-ssh hosts
+vibe-ssh space open <host-id> --name "inspect deployment" --actor "Codex"
+vibe-ssh run --lease <lease> -- 'uname -a'
+```
 
-- 服务器由用户手动配置，Agent 只能使用用户已开启接入的主机。
-- 外部 Agent 负责推理，客户端内核负责确定性执行和状态返回。
-- CLI 与界面共享同一个内核，执行与观察不能各自维护一套会话。
-- 接管在内核撤销写权限；中断进程是另一个明确动作。
-- 用户自己的终端对 Agent 不可见；不同任务空间不共用连接。
-- 不用提示符或日志关键词猜测命令是否成功；没有退出状态时返回未知。
-- 性能结论必须来自同等条件的测量。
+Long tasks return a cursor for `job wait`. A wait expiring does not mean the task failed. Read the [full guide](skills/vibe-ssh/guide.md) before operating a server.
 
-## 文档与贡献
+</details>
 
-架构决策见 [ADR 0001](docs/adr/0001-runtime-and-reuse.md) 与 [ADR 0002](docs/adr/0002-task-spaces-and-agent-neutrality.md)，[协议说明](docs/03-agent-protocol.md)记录外部 Agent 契约，[安全与可靠性](docs/04-security-and-reliability.md)记录凭据、权限与故障边界。
+Deployment reference flows:
 
-第三方组件的许可证保留在各自上游。Vibe-SSH 自身的对外发布许可证尚未确定，当前仓库不代表已获得生产环境验收。
+```sh
+vibe-ssh skill static-site   # built static files served by Nginx
+vibe-ssh skill compose       # an existing Docker Compose project
+```
+
+## Watching and taking over
+
+An agent's task space groups its commands, terminals and control state. Keep working in your own terminal while observing that space.
+
+Taking over makes the kernel reject subsequent agent commands, input, uploads, interruptions and close operations for that space. Already-running commands continue until they finish or you explicitly interrupt them. An agent can also hand over when a password or human decision is needed.
+
+Returning control creates a new lease. The agent must read updated state before continuing. Personal terminal spaces are not exposed through the agent interface. Manual host management and fingerprint trust are not agent socket methods.
+
+![Vibe-SSH session view with task output and human control actions](docs/assets/session.png)
+
+*Session screenshot uses the application's development sample data.*
+
+## Project status
+
+The current release line is **0.2.0 preview**. The main branch includes the macOS desktop client, isolated agent spaces, SFTP operations, bounded text editing, Linux monitoring and version-matched Skill/CLI integration.
+
+The desktop interface currently uses Simplified Chinese. The CLI guide and these community docs are available in English.
+
+Validation records cover temporary OpenSSH servers and an isolated Debian 13 VM: execution, upload, interruption, takeover, password handoff and the two deployment flows. These scoped records do not establish that every agent has independently deployed an application or that public-server deployment is universally verified.
+
+Full native-application, Keychain and installation acceptance is tracked separately. Directory-diff preview, persistent task history, SSH Agent authentication, jump hosts, port forwarding, and Windows/Linux desktop packages are not in the published preview's feature set.
+
+See the [implementation and evidence log](docs/06-development-and-status.md), [roadmap](ROADMAP.md) and [release notes](CHANGELOG.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Agent[Codex / Claude Code / external agent] --> Skill[Version-matched Skill]
+    Skill --> CLI[vibe-ssh CLI]
+    CLI --> Socket[Current-user Unix socket]
+    Socket --> Core[Rust kernel inside the desktop app]
+    UI[Tauri + React + xterm.js] --> Core
+    Core --> AgentSpace[Agent space / own SSH connection]
+    Core --> Personal[Personal terminal / separate SSH connection]
+    AgentSpace --> Server[Your server]
+    Personal --> Server
+```
+
+Rust/Tokio and [russh](https://github.com/Eugeny/russh) handle SSH. Tauri 2, React/TypeScript and [xterm.js](https://github.com/xtermjs/xterm.js) provide the desktop interface. Connections are reused within each task space. Protocol v2 exposes agent operations, while manual configuration and control stay inside the application.
+
+Read the [architecture decisions](docs/adr/0002-task-spaces-and-agent-neutrality.md) and [agent protocol](docs/03-agent-protocol.md) for the boundaries and failure semantics.
+
+## Build from source
+
+Build on macOS with Rust **1.89 or newer**, Node.js **24**, Xcode Command Line Tools and the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+```sh
+git clone https://github.com/IntMainJhy/Vibe-SSH.git
+cd Vibe-SSH
+
+cd apps/desktop
+npm ci
+npm test
+npm run build
+cd ../..
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+
+cd apps/desktop
+npx tauri build
+```
+
+The desktop crate embeds the built frontend: build the frontend before checking the Rust workspace. Native end-to-end tests use macOS's `/usr/sbin/sshd` with temporary directories and identities.
+
+For the isolated Linux VM and deployment examples, see [Contributing](CONTRIBUTING.md). A browser-only development preview uses sample data and does not connect to servers.
+
+## FAQ
+
+**Does Vibe-SSH include its own AI model?**
+
+It uses external agents through Skills and a CLI. Keep using your existing agent environment.
+
+**Can I use it as a regular SSH client?**
+
+Yes. Configure hosts and use terminals, files and monitoring yourself; agent access is enabled per host.
+
+**Do I need a Vibe-SSH service on my VPS?**
+
+The app connects over SSH. Operations still need their usual server-side tools, such as `tar`, Nginx or Docker.
+
+**Is it faster than a traditional SSH tool?**
+
+The design reduces repeated setup and makes output and task state directly available to agents. A [scoped loopback benchmark](docs/performance/2026-11-17-loopback.json) exists; it does not establish a general speedup for public networks or full deployments.
+
+**Are Windows and Linux desktop clients available?**
+
+Current packages are for macOS. Linux is a remote-server target. Other desktop platforms are on the [roadmap](ROADMAP.md).
+
+## Community and documentation
+
+- [Report a bug](https://github.com/IntMainJhy/Vibe-SSH/issues/new/choose) with your version and reproducible steps.
+- [Ask a question or share a workflow](https://github.com/IntMainJhy/Vibe-SSH/discussions).
+- [Contribute](CONTRIBUTING.md), review the [code of conduct](CODE_OF_CONDUCT.md), or read the [support guide](SUPPORT.md).
+- [Report security issues privately](SECURITY.md).
+- Browse the [technical documentation](docs/README.md), [design system](DESIGN.md) and [agent Skill](skills/vibe-ssh/SKILL.md).
+
+## License
+
+Vibe-SSH is available under the [MIT License](LICENSE). Third-party components retain their own licenses; release packaging maintains separate [third-party notices](third_party/licenses/README.md).

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and workflows / 提问与使用交流
+    url: https://github.com/IntMainJhy/Vibe-SSH/discussions
+    about: Ask a question or share an SSH/deployment workflow.
+  - name: Security vulnerability / 私密安全报告
+    url: https://github.com/IntMainJhy/Vibe-SSH/security/advisories/new
+    about: Report security-sensitive problems privately. Do not post credentials in public issues.
