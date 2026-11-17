@@ -2,7 +2,7 @@
 
 Vibe-SSH 是供用户与外部 Agent 共同使用的 SSH 客户端。用户手动添加自己的服务器；Codex、Claude Code 等 Agent 读取项目提供的 Skill 后，通过本地 `vibe-ssh` 命令行执行操作。Agent 的每个目标是一个任务空间，有独立的 SSH 连接，用户可以同时使用自己的终端，并随时接管 Agent 的空间。
 
-项目不内置大模型或自主决策 Agent。技术路线为 Rust/Tokio、russh、Tauri 2、React/TypeScript 和 xterm.js，首版只面向 macOS。
+产品定位是日常 SSH 客户端，外部 Agent 通过 Skill 接入。项目不内置大模型或自主决策 Agent。技术路线为 Rust/Tokio、russh、Tauri 2、React/TypeScript 和 xterm.js，首版只面向 macOS。
 
 ## 当前阶段
 
@@ -10,12 +10,14 @@ Vibe-SSH 是供用户与外部 Agent 共同使用的 SSH 客户端。用户手�
 
 还没有的证据：桌面窗口里的点击操作和钥匙串没有经过人工验收；没有真实 Agent 凭 Skill 独立完成过部署；没有在公网服务器上验证过。
 
+桌面工作台现支持服务器与会话搜索、手动重连、外观切换、终端字号记忆和完整命令复制。长文本输入按 Unicode 边界分块，发送失败会显示错误并停止后续排队输入。
+
 先阅读 [方案总览](docs/README.md)，实际能力与限制见 [开发与实现状态](docs/06-development-and-status.md)。
 
 ## 本地开发
 
 ```sh
-(cd apps/desktop && npm ci && npm run build)
+(cd apps/desktop && npm ci && npm test && npm run build)
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check

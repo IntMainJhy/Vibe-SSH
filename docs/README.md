@@ -22,7 +22,7 @@
 ## 已确定的决定
 
 1. 用户像使用 FinalShell 一样手动填写服务器资料。
-2. Vibe-SSH 不内置推理 Agent；Agent、Claude Code 等任意外部 Agent 通过 Skill 与 CLI 操作。
+2. Vibe-SSH 是日常 SSH 客户端，外部 Agent 通过 Skill 与 CLI 操作；不提供多 Agent 调度或管理界面。
 3. Rust 内核统一管理 SSH 连接、任务、输出和控制权。
 4. UI 使用 Tauri 2、React/TypeScript 和 xterm.js。
 5. 优先复用协议库与终端组件，不整体 fork 一个完整 SSH 客户端。

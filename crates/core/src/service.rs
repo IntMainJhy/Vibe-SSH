@@ -196,6 +196,17 @@ impl Service {
         })
     }
 
+    /// The app uses this synchronously when the OS asks it to quit.
+    pub fn running_jobs(&self) -> usize {
+        self.registry
+            .lock()
+            .unwrap()
+            .jobs
+            .values()
+            .filter(|job| job.running())
+            .count()
+    }
+
     // ---- hosts: written only by the user through the embedding process ----
 
     pub fn load_hosts(&self) -> Result<Vec<Host>> {

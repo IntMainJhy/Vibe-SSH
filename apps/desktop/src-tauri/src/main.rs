@@ -7,6 +7,7 @@ use security_framework::passwords::{
     delete_generic_password, get_generic_password, set_generic_password,
 };
 use serde_json::{Value, json};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, State};
 use vibe_ssh_core::{By, Chunk, Error, ErrorCode, Host, Service, default_home, serve, skill};
 use vibe_ssh_protocol::{ErrorBody, Owner, SpaceView};
@@ -54,11 +55,19 @@ async fn host_key(host: String, port: u16) -> Reply<(String, String)> {
 
 #[tauri::command]
 async fn save_host(kernel: Kernel<'_>, mut host: Host, secret: Option<String>) -> Reply<Host> {
+    host.name = host.name.trim().to_owned();
+    host.host = host.host.trim().to_owned();
+    host.username = host.username.trim().to_owned();
     if host.name.trim().is_empty() || host.host.trim().is_empty() || host.username.is_empty() {
         return Err(invalid("name, address and username are required"));
     }
     if !host.host_key_sha256.starts_with("SHA256:") {
         return Err(invalid("fetch and verify the host fingerprint first"));
+    }
+    if host.port == 0 || host.host.contains(char::is_whitespace) || host.host.contains('\0') {
+        return Err(invalid(
+            "address must not contain spaces; port must be 1..=65535",
+        ));
     }
     if let Some(path) = &host.identity_file {
         let path = match path.strip_prefix("~") {
@@ -192,6 +201,44 @@ async fn install_skill(kernel: Kernel<'_>) -> Reply<Value> {
     skill::install(kernel.home(), &user_home(), cli.as_deref()).map_err(fail)
 }
 
+/// Only called after the user confirms exit. Never exposed on the agent socket.
+#[tauri::command]
+fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
+    app.exit(0);
+}
+
+/// A user-triggered clipboard write, independent of WebKit's Clipboard API support.
+#[tauri::command]
+fn copy_text(text: String) -> Reply<()> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    if text.len() > vibe_ssh_protocol::MAX_COMMAND {
+        return Err(invalid("clipboard text is too large"));
+    }
+    let failure = |_| ErrorBody {
+        code: ErrorCode::Internal,
+        message: "无法写入系统剪贴板，请重试。".into(),
+    };
+    let mut child = Command::new("/usr/bin/pbcopy")
+        .env("LC_CTYPE", "UTF-8")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(failure)?;
+    let written = child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(text.as_bytes());
+    let finished = child.wait();
+    written.map_err(failure)?;
+    if !finished.map_err(failure)?.success() {
+        return Err(invalid("无法写入系统剪贴板，请重试。"));
+    }
+    Ok(())
+}
+
 /// Script errors, blocked resources and layout facts from the window. Shown when traced.
 #[tauri::command]
 fn ui_report(message: String) {
@@ -221,6 +268,8 @@ fn commands<R: tauri::Runtime>(
             job_resize,
             job_interrupt,
             install_skill,
+            exit_app,
+            copy_text,
             ui_report
         ]);
     // VIBE_SSH_TRACE=1 logs which commands the interface calls, for diagnosing a blank window.
@@ -247,7 +296,49 @@ fn main() -> ExitCode {
             String::from_utf8(secret).ok()
         }),
     );
+    let quitting = service.clone();
+    let menu_service = service.clone();
     commands(tauri::Builder::default(), service.clone())
+        .menu(|app| {
+            // macOS's predefined Quit terminates directly; use a normal menu action
+            // so Cmd+Q goes through our task-aware confirmation as well.
+            let menu = Menu::default(app)?;
+            menu.remove_at(0)?;
+            let quit = MenuItem::with_id(
+                app,
+                "quit-confirm",
+                "退出 Vibe-SSH",
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?;
+            let app_menu = Submenu::with_items(
+                app,
+                "Vibe-SSH",
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, Some("关于 Vibe-SSH"), None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, Some("隐藏 Vibe-SSH"))?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit,
+                ],
+            )?;
+            menu.prepend(&app_menu)?;
+            Ok(menu)
+        })
+        .on_menu_event(move |app, event| {
+            if event.id().as_ref() == "quit-confirm" {
+                if menu_service.running_jobs() > 0 {
+                    let _ = app.emit("quit-requested", ());
+                } else {
+                    app.exit(0);
+                }
+            }
+        })
         .setup(move |app| {
             tauri::async_runtime::block_on(serve(service.clone()))?;
             let (app, mut events) = (app.handle().clone(), service.subscribe());
@@ -258,8 +349,20 @@ fn main() -> ExitCode {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Vibe-SSH failed to start");
+        .build(tauri::generate_context!())
+        .expect("Vibe-SSH failed to start")
+        .run(move |app, event| {
+            // Cmd+Q and the application menu also pass through the same confirmation.
+            // An explicit exit(0) from the confirmation has a code and proceeds.
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+                && quitting.running_jobs() > 0
+            {
+                api.prevent_exit();
+                let _ = app.emit("quit-requested", ());
+            }
+        });
     ExitCode::SUCCESS
 }
 
@@ -327,10 +430,19 @@ mod tests {
             invoke(&webview, "save_host", json!({"host": form, "secret": null})).unwrap_err();
         assert_eq!(refused["code"], "INVALID_REQUEST");
         form["host_key_sha256"] = key[1].clone();
+        form["port"] = json!(0);
+        let refused =
+            invoke(&webview, "save_host", json!({"host": form, "secret": null})).unwrap_err();
+        assert_eq!(
+            refused["code"], "INVALID_REQUEST",
+            "an invalid port is never saved"
+        );
+        form["port"] = json!(sshd.port);
         let saved = invoke(&webview, "save_host", json!({"host": form, "secret": null})).unwrap();
         let host = saved["id"].as_str().unwrap().to_owned();
         assert_eq!(host.len(), 8, "a new host gets a generated id");
 
+        assert_eq!(service.running_jobs(), 0);
         // An agent starts working on that host.
         let agent = block(service.open(&host, "deploy", "codex", Owner::Agent)).unwrap();
         let lease = agent.control.lease.clone().unwrap();
@@ -338,6 +450,11 @@ mod tests {
         let job = block(service.run(By::Lease(&lease), Some("cat".into()), None, Some((80, 24))))
             .unwrap();
         let job = job.as_str();
+        assert_eq!(
+            service.running_jobs(),
+            1,
+            "the native quit guard sees running jobs"
+        );
         let seen = invoke(&webview, "snapshot", json!({})).unwrap();
         assert_eq!(seen["spaces"][0]["actor"], "codex");
         assert_eq!(seen["spaces"][0]["jobs"][0]["status"], "running");

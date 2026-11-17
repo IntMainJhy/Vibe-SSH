@@ -1,48 +1,92 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { call, explain, type Host } from "./api";
+import { Icon } from "./Icon";
+import { Modal } from "./Modal";
 
 type Key = { algorithm: string; fingerprint: string };
 
-/** Add or edit a server. Saving requires a fingerprint the user says they compared. */
-export function HostForm({ initial, onClose }: { initial?: Host; onClose: () => void }) {
+export function HostForm({
+  initial,
+  onClose,
+}: {
+  initial?: Host;
+  onClose: () => void;
+}) {
   const [name, setName] = useState(initial?.name ?? "");
   const [address, setAddress] = useState(initial?.host ?? "");
   const [port, setPort] = useState(String(initial?.port ?? 22));
   const [username, setUsername] = useState(initial?.username ?? "root");
-  const [useKey, setUseKey] = useState(initial ? initial.identity_file !== null : true);
-  const [identity, setIdentity] = useState(initial?.identity_file ?? "~/.ssh/id_ed25519");
+  const [useKey, setUseKey] = useState(
+    initial ? initial.identity_file !== null : true,
+  );
+  const [identity, setIdentity] = useState(
+    initial?.identity_file ?? "~/.ssh/id_ed25519",
+  );
   const [secret, setSecret] = useState("");
-  const [agentAccess, setAgentAccess] = useState(initial?.agent_access ?? false);
+  const [agentAccess, setAgentAccess] = useState(
+    initial?.agent_access ?? false,
+  );
   const [key, setKey] = useState<Key | undefined>(
     initial && { algorithm: "", fingerprint: initial.host_key_sha256 },
   );
   const [verified, setVerified] = useState(Boolean(initial));
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"probe" | "save" | "delete">();
+  const working = useRef(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string>();
-
   const portNumber = Number(port);
-  const run = (work: Promise<unknown>) => {
-    setBusy(true);
+  const validPort =
+    Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
+  const requiresPassword =
+    !useKey && (!initial || initial.identity_file !== null);
+  const ready = Boolean(
+    name.trim() &&
+      address.trim() &&
+      username.trim() &&
+      validPort &&
+      key &&
+      verified &&
+      (!useKey || identity.trim()) &&
+      (!requiresPassword || secret),
+  );
+
+  const run = async (
+    operation: NonNullable<typeof busy>,
+    work: () => Promise<unknown>,
+  ) => {
+    if (working.current) return;
+    working.current = true;
+    setBusy(operation);
     setError(undefined);
-    work.catch((e) => setError(explain(e))).finally(() => setBusy(false));
+    try {
+      await work();
+    } catch (e) {
+      setError(explain(e));
+    } finally {
+      working.current = false;
+      setBusy(undefined);
+    }
   };
-  // A fingerprint only describes the address it was fetched from.
   const retarget = (apply: () => void) => {
     apply();
     setKey(undefined);
     setVerified(false);
   };
-  const fetchKey = () =>
-    run(
-      call<[string, string]>("host_key", { host: address.trim(), port: portNumber }).then(([algorithm, fingerprint]) => {
-        setKey({ algorithm, fingerprint });
-        setVerified(false);
-      }),
-    );
-  const save = () =>
-    run(
-      call("save_host", {
+  const fetchKey = () => {
+    if (!address.trim() || !validPort) return;
+    void run("probe", async () => {
+      const [algorithm, fingerprint] = await call<[string, string]>(
+        "host_key",
+        { host: address.trim(), port: portNumber },
+      );
+      setKey({ algorithm, fingerprint });
+      setVerified(false);
+    });
+  };
+  const save = () => {
+    if (!ready) return;
+    void run("save", async () => {
+      await call("save_host", {
         host: {
           id: initial?.id ?? "",
           name: name.trim(),
@@ -54,128 +98,249 @@ export function HostForm({ initial, onClose }: { initial?: Host; onClose: () => 
           agent_access: agentAccess,
         },
         secret: secret || null,
-      }).then(onClose),
-    );
-
-  const changed = initial && key && key.fingerprint !== initial.host_key_sha256;
-  const ready = name.trim() && address.trim() && username.trim() && portNumber > 0 && key && verified;
+      });
+      onClose();
+    });
+  };
 
   return (
-    <div className="scrim">
+    <Modal
+      titleId="host-title"
+      className="host-dialog"
+      onClose={onClose}
+      busy={Boolean(busy)}
+    >
       <form
-        className="dialog host-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (ready) save();
+        className="host-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
         }}
       >
-        <h2>{initial ? "服务器设置" : "添加服务器"}</h2>
-
-        <label>
-          名称
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：博客服务器" autoFocus />
-        </label>
-        <div className="pair">
+        <header className="form-heading">
+          <span className="server-tile">
+            <Icon name="server" size={23} />
+          </span>
+          <div>
+            <h2 id="host-title">{initial ? "服务器设置" : "添加服务器"}</h2>
+            <p>保存连接资料，凭据留在这台 Mac。</p>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            disabled={Boolean(busy)}
+            aria-label="关闭服务器设置"
+            onClick={onClose}
+          >
+            <Icon name="close" />
+          </button>
+        </header>
+        <fieldset className="form-fields" disabled={Boolean(busy)}>
           <label>
-            地址
-            <input value={address} onChange={(e) => retarget(() => setAddress(e.target.value))} placeholder="IP 或域名" />
+            服务器名称
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="例如：生产服务器"
+              autoFocus
+              maxLength={80}
+              required
+            />
           </label>
-          <label className="narrow">
-            端口
-            <input value={port} onChange={(e) => retarget(() => setPort(e.target.value))} inputMode="numeric" />
+          <div className="pair">
+            <label>
+              主机地址
+              <input
+                value={address}
+                onChange={(e) => retarget(() => setAddress(e.target.value))}
+                placeholder="IP 地址或域名"
+                spellCheck={false}
+                required
+              />
+            </label>
+            <label className="narrow">
+              端口
+              <input
+                value={port}
+                onChange={(e) => retarget(() => setPort(e.target.value))}
+                type="number"
+                min="1"
+                max="65535"
+                step="1"
+                required
+                aria-invalid={Boolean(port) && !validPort}
+              />
+            </label>
+          </div>
+          <label>
+            登录用户
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              spellCheck={false}
+              required
+            />
           </label>
-        </div>
-        <label>
-          用户名
-          <input value={username} onChange={(e) => setUsername(e.target.value)} />
-        </label>
-
-        <fieldset>
-          <legend>登录方式</legend>
-          <label className="choice">
-            <input type="radio" checked={useKey} onChange={() => setUseKey(true)} /> 私钥
+          <div className="form-divider" />
+          <fieldset className="auth-choice">
+            <legend>认证方式</legend>
+            <label>
+              <input
+                type="radio"
+                name="auth"
+                checked={useKey}
+                onChange={() => setUseKey(true)}
+              />
+              SSH 私钥
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="auth"
+                checked={!useKey}
+                onChange={() => setUseKey(false)}
+              />
+              密码登录
+            </label>
+          </fieldset>
+          {useKey && (
+            <label>
+              私钥文件
+              <input
+                value={identity}
+                onChange={(e) => setIdentity(e.target.value)}
+                spellCheck={false}
+                placeholder="~/.ssh/id_ed25519"
+                required
+              />
+            </label>
+          )}
+          <label>
+            {useKey ? "私钥口令" : "登录密码"}
+            <input
+              type="password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              autoComplete="new-password"
+              placeholder={
+                initial
+                  ? "留空保留原有凭据"
+                  : useKey
+                    ? "未加密的私钥可留空"
+                    : "输入登录密码"
+              }
+              required={requiresPassword}
+            />
+            <small>
+              <Icon name="shield" size={12} />
+              保存到系统钥匙串，Agent 接口不提供凭据。
+            </small>
           </label>
-          <label className="choice">
-            <input type="radio" checked={!useKey} onChange={() => setUseKey(false)} /> 密码
+          <div className="trust">
+            <div className="trust-head">
+              <strong>
+                <Icon name="shield" size={16} />
+                服务器身份
+              </strong>
+              <button
+                type="button"
+                onClick={fetchKey}
+                disabled={!address.trim() || !validPort}
+              >
+                {busy === "probe"
+                  ? "正在获取…"
+                  : key
+                    ? "重新获取指纹"
+                    : "获取指纹"}
+              </button>
+            </div>
+            {key ? (
+              <>
+                <code className="fingerprint">
+                  {key.algorithm && <span>{key.algorithm}</span>}
+                  {key.fingerprint}
+                </code>
+                {initial && key.fingerprint !== initial.host_key_sha256 && (
+                  <p className="warn">
+                    指纹已变化。请先确认服务器是否重装或更换。
+                  </p>
+                )}
+                <p>请与服务器或云厂商控制台中的主机公钥指纹独立比对。</p>
+                <label className="choice">
+                  <input
+                    type="checkbox"
+                    checked={verified}
+                    onChange={(e) => setVerified(e.target.checked)}
+                  />
+                  我已核对，指纹一致
+                </label>
+              </>
+            ) : (
+              <p>获取指纹并核对后才能保存。后续连接会自动检查服务器身份。</p>
+            )}
+          </div>
+          <label className="access choice">
+            <input
+              type="checkbox"
+              checked={agentAccess}
+              onChange={(e) => setAgentAccess(e.target.checked)}
+            />
+            <span>
+              <strong>允许 Agent 操作</strong>
+              <small>
+                通过 Skill 以 {username || "此用户"}{" "}
+                的权限运行命令，此开关对新会话生效，已有会话可接管或关闭。
+              </small>
+            </span>
           </label>
         </fieldset>
-        {useKey && (
-          <label>
-            私钥文件
-            <input value={identity} onChange={(e) => setIdentity(e.target.value)} spellCheck={false} />
-          </label>
-        )}
-        <label>
-          {useKey ? "私钥口令（没有就留空）" : "密码"}
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder={initial ? "不修改就留空" : ""}
-          />
-          <small>保存在这台 Mac 的钥匙串里，Agent 读不到。</small>
-        </label>
-
-        <div className="trust">
-          <div className="trust-head">
-            <strong>服务器指纹</strong>
-            <button type="button" onClick={fetchKey} disabled={busy || !address.trim() || !(portNumber > 0)}>
-              {key ? "重新获取" : "获取指纹"}
-            </button>
-          </div>
-          {key ? (
-            <>
-              <code>
-                {key.algorithm && `${key.algorithm} `}
-                {key.fingerprint}
-              </code>
-              {changed && <p className="warn">和之前保存的指纹不一样。除非你刚重装过这台服务器，否则不要继续。</p>}
-              <p>
-                在服务器的控制台里运行 <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>
-                ，或到云厂商的控制台查看，确认两边一致。指纹不一致说明连到的可能不是你的服务器。
-              </p>
-              <label className="choice">
-                <input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /> 我已核对，指纹一致
-              </label>
-            </>
-          ) : (
-            <p>填好地址后获取指纹。之后每次连接都会检查它，不一致就拒绝连接。</p>
-          )}
-        </div>
-
-        <label className="choice access">
-          <input type="checkbox" checked={agentAccess} onChange={(e) => setAgentAccess(e.target.checked)} />
-          <span>
-            允许 Agent 使用这台服务器
-            <small>Agent 将能以 {username || "这个用户"} 的身份在上面运行任何命令。</small>
-          </span>
-        </label>
-
         {error && (
-          <p className="warn" role="alert">
+          <p className="form-error" role="alert">
+            <Icon name="alert" size={16} />
             {error}
           </p>
         )}
-        <div className="actions">
-          {initial &&
-            (deleting ? (
-              <button type="button" className="danger" onClick={() => run(call("delete_host", { id: initial.id }).then(onClose))}>
-                确认删除
-              </button>
-            ) : (
-              <button type="button" className="quiet" onClick={() => setDeleting(true)}>
-                删除服务器
-              </button>
-            ))}
+        {deleting && (
+          <p className="form-error" role="alert">
+            删除连接资料不会删除服务器上的文件。已打开的会话仍需单独关闭。
+          </p>
+        )}
+        <footer className="form-actions">
+          {initial && (
+            <button
+              type="button"
+              className={deleting ? "danger" : "text-button danger-text"}
+              disabled={Boolean(busy)}
+              onClick={() =>
+                deleting
+                  ? void run("delete", async () => {
+                      await call("delete_host", { id: initial.id });
+                      onClose();
+                    })
+                  : setDeleting(true)
+              }
+            >
+              {busy === "delete"
+                ? "删除中…"
+                : deleting
+                  ? "确认删除资料"
+                  : "删除服务器"}
+            </button>
+          )}
           <span className="spacer" />
-          <button type="button" onClick={onClose}>
+          <button type="button" disabled={Boolean(busy)} onClick={onClose}>
             取消
           </button>
-          <button type="submit" className="primary" disabled={busy || !ready}>
-            保存
+          <button
+            type="submit"
+            className="primary"
+            disabled={Boolean(busy) || !ready}
+          >
+            {busy === "save" ? "保存中…" : "保存服务器"}
           </button>
-        </div>
+        </footer>
       </form>
-    </div>
+    </Modal>
   );
 }
