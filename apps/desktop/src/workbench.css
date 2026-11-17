@@ -1764,6 +1764,7 @@ button.panel-link {
 }
 .diff-table-wrap {
   overflow: auto;
+  scroll-padding-top: 48px;
   max-height: 38dvh;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1773,6 +1774,9 @@ button.panel-link {
 }
 .diff-table th:first-child {
   width: 40px;
+}
+.diff-table input {
+  scroll-margin-block: 48px 12px;
 }
 .diff-table td:first-child {
   width: 40px;
