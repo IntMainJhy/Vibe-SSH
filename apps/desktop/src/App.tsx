@@ -25,6 +25,8 @@ const STATUS: Record<Job["status"], string> = {
   failed: "失败",
   unknown: "结果未知",
 };
+const failedJobs = (space: Space) =>
+  space.jobs.filter((job) => job.status === "failed").length;
 type Notice = { text: string; kind: "error" | "success" };
 type Act = (key: string, work: () => Promise<unknown>) => Promise<void>;
 
@@ -250,6 +252,12 @@ export function App() {
                         : s.origin === "agent"
                           ? "Agent 操作"
                           : "我的终端"}
+                    {failedJobs(s) > 0 && (
+                      <span className="failure-note">
+                        {" "}
+                        · {failedJobs(s)} 项失败
+                      </span>
+                    )}
                   </small>
                 </span>
                 <span
@@ -290,7 +298,9 @@ export function App() {
               className="text-button"
               disabled={pending.includes("install")}
               onClick={() => void install()}
+              title="安装或更新 Agent 的 Skill 与命令"
             >
+              <span className="compact-agent-label">Agent</span>
               {pending.includes("install")
                 ? "安装中"
                 : data?.skill.skill && data.skill.cli
@@ -391,7 +401,6 @@ export function App() {
             onConnect={openTerminal}
             onEdit={setEditing}
             onSelect={select}
-            onInstall={install}
           />
         )}
       </main>
@@ -479,7 +488,6 @@ function Workbench({
   onConnect,
   onEdit,
   onSelect,
-  onInstall,
 }: {
   data: Snapshot;
   hosts: Host[];
@@ -488,7 +496,6 @@ function Workbench({
   onConnect: (h: Host) => Promise<void>;
   onEdit: (h: Host | "new") => void;
   onSelect: (s: string) => void;
-  onInstall: () => Promise<void>;
 }) {
   const running = data.spaces
     .flatMap((s) => s.jobs)
@@ -501,7 +508,10 @@ function Workbench({
           <h1>服务器工作台</h1>
           <p>连接服务器，继续手头的工作。</p>
         </div>
-        <button className="primary" onClick={() => onEdit("new")}>
+        <button
+          className={data.hosts.length ? "add-server" : "primary"}
+          onClick={() => onEdit("new")}
+        >
           <Icon name="plus" size={17} />
           添加服务器
         </button>
@@ -558,8 +568,9 @@ function Workbench({
                           <Icon name="server" size={21} />
                         </span>
                         <div>
-                          <strong>{h.name}</strong>
+                          <strong title={h.name}>{h.name}</strong>
                           <code>
+                            <span className="endpoint-user">{h.username}@</span>
                             {h.host}
                             <span>:{h.port}</span>
                           </code>
@@ -662,6 +673,12 @@ function Workbench({
                         : last
                           ? STATUS[last.status]
                           : "已连接"}
+                    {failedJobs(s) > 0 && (
+                      <span className="failure-note">
+                        {" "}
+                        · {failedJobs(s)} 项失败
+                      </span>
+                    )}
                   </span>
                   <Icon name="chevron" size={15} />
                 </button>
@@ -674,29 +691,6 @@ function Workbench({
           </p>
         )}
       </section>
-      <aside className="agent-help">
-        <span className="help-icon">
-          <Icon name="link" size={21} />
-        </span>
-        <div>
-          <h3>也可以交给你的 Agent</h3>
-          <p>
-            启用 Skill 后，让 Agent 通过 Vibe-SSH
-            部署或排障。执行过程会出现在会话里，你随时可以接管。
-          </p>
-        </div>
-        {data.skill.cli && data.skill.skill ? (
-          <code>vibe-ssh skill</code>
-        ) : (
-          <button
-            disabled={pending.includes("install")}
-            onClick={() => void onInstall()}
-          >
-            {pending.includes("install") ? "正在启用…" : "启用 Agent 接入"}
-            <Icon name="arrow" size={15} />
-          </button>
-        )}
-      </aside>
       <p className="workspace-footnote">
         <Icon name="shield" size={13} />
         连接由本机管理，凭据保存在这台 Mac。
@@ -854,11 +848,21 @@ function Session({
               <span>
                 {j.command ? j.command.split("\n")[0].slice(0, 42) : "交互终端"}
               </span>
-              {!j.pty && <span className="tab-kind">任务</span>}
+              <span className="tab-kind" data-status={j.status}>
+                {STATUS[j.status]}
+              </span>
             </button>
           ))}
           <span className="tab-spacer" />
-          <span className="terminal-mode">{writable ? "可输入" : "只读"}</span>
+          <span className="terminal-mode">
+            {writable
+              ? "可输入"
+              : job?.status === "unknown"
+                ? "结果未知 · 只读"
+                : job && job.status !== "running"
+                  ? "已结束 · 只读"
+                  : "只读"}
+          </span>
         </div>
         {job ? (
           <>
@@ -928,11 +932,17 @@ function Session({
               <span>
                 {!space.connected
                   ? "已断开连接"
-                  : !held
-                    ? "只读观察 · 接管后可输入"
+                  : job.status === "unknown"
+                    ? held
+                      ? "远端结果未知；点击“新终端”核实"
+                      : "远端结果未知；接管后可新开终端核实"
                     : job.status !== "running"
-                      ? "任务输出已保留"
-                      : "输入将发送到服务器"}
+                      ? held
+                        ? "任务已结束；点击上方“新终端”继续操作"
+                        : "任务输出只读；接管后可新开终端"
+                      : !held
+                        ? "只读观察 · 接管后可输入"
+                        : "输入将发送到服务器"}
                 {held && job.status === "running" && space.connected && (
                   <button
                     className="interrupt"
