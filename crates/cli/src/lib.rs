@@ -20,8 +20,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Print the usage guide that matches this version.
-    Skill,
+    /// Print the usage guide that matches this version, or a deployment flow.
+    Skill {
+        /// `static-site` or `compose`. Omit for the main guide.
+        topic: Option<String>,
+    },
     /// Service version, protocol and instance.
     Status,
     /// Hosts the user enabled for agents.
@@ -178,8 +181,8 @@ async fn run(command: Command) -> anyhow::Result<u8> {
     let home = default_home();
     let mut archive = None;
     let call = match command {
-        Command::Skill => {
-            print!("{}", skill::GUIDE);
+        Command::Skill { topic } => {
+            print!("{}", skill::guide(topic.as_deref())?);
             return Ok(0);
         }
         Command::InstallSkill => {

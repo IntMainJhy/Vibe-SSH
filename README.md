@@ -6,7 +6,9 @@ Vibe-SSH 是供用户与外部 Agent 共同使用的 SSH 客户端。用户手�
 
 ## 当前阶段
 
-2026-11-17：Agent 闭环（M1）已实现并验证：任务空间、控制权、上传、命令行和引导式 Skill。macOS 桌面应用（M2）已实现：添加服务器并核对指纹、钥匙串、自己的终端、观看并接管 Agent 的空间。本机 28 项测试通过，其中 3 项使用真实 OpenSSH 服务。桌面应用的命令层已测试，真实窗口里的操作和钥匙串还没有经过人工验收；也还没有在真实 Linux 服务器上验证过。
+2026-11-17：Agent 闭环已实现，并在真实 Linux 服务器（本机 Debian 13 虚拟机）上验证：执行、终端、上传、中断、接管、sudo 密码交接。macOS 桌面应用已实现：添加服务器并核对指纹、钥匙串、自己的终端、观看并接管 Agent 的空间。静态站点（Nginx）和 Docker Compose 两个部署流程已写入 Skill，并在 Linux 上照原文跑通，包括失败与恢复。
+
+还没有的证据：桌面窗口里的点击操作和钥匙串没有经过人工验收；没有真实 Agent 凭 Skill 独立完成过部署；没有在公网服务器上验证过。
 
 先阅读 [方案总览](docs/README.md)，实际能力与限制见 [开发与实现状态](docs/06-development-and-status.md)。
 
@@ -21,6 +23,8 @@ cargo fmt --all -- --check
 ```
 
 桌面 crate 在编译时嵌入已构建的界面，所以要先构建前端。
+
+需要一台真实的 Linux 服务器来试用或测试时，`scripts/linux-vm.sh up` 会在本机启动一台 Debian 虚拟机（需要 Apple 芯片的 Mac 和 `brew install qemu`），`scripts/linux-vm.sh hosts` 输出可以直接放进 `~/.vibe-ssh/hosts.json` 的主机配置。
 
 测试在回环地址启动临时 SSH 服务并生成临时密钥，不使用用户的 SSH 配置或真实服务器。端到端测试需要 macOS 自带的 `/usr/sbin/sshd`。
 

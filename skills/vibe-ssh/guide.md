@@ -67,6 +67,23 @@ vibe-ssh job input --lease <lease> <job> -- 'yes'      # sends the line plus Ent
 vibe-ssh job interrupt --lease <lease> <job>           # requests Ctrl+C; check status after
 ```
 
+A run is not a login shell. On many servers `/usr/sbin` is not on `PATH`, so
+admin tools need `sudo` or a full path. Check `sudo -n true` before relying on
+sudo; if it needs a password, see "When the user takes control" below.
+
+A job lives on its space's connection. If the space is closed or the
+connection drops, a job that is still printing output, or one started with
+`--pty`, is killed by the server. To start something that must keep running
+(a one-off migration, a server without a process manager), detach it fully and
+then check on it with later runs:
+
+```bash
+vibe-ssh run --lease <lease> -- 'nohup setsid ./long-task.sh > /tmp/long-task.log 2>&1 < /dev/null & echo started'
+```
+
+Prefer the server's own process manager (systemd, Docker) for anything that
+should stay up.
+
 ## Upload project files
 
 ```bash
@@ -115,6 +132,16 @@ After the user says they are done, get the new lease with `space get`.
 - `DELIVERY_UNKNOWN` - input may have partly arrived. Look at the job output
   before sending anything again.
 - `RESOURCE_LIMIT` - wait for running jobs to finish or close finished spaces.
+
+## Deployment flows
+
+Step-by-step flows that were verified on a real server. Read the one that fits
+before deploying; they include the failure handling.
+
+```bash
+vibe-ssh skill static-site     # built static files served by Nginx
+vibe-ssh skill compose         # a Docker Compose project
+```
 
 ## Rules
 

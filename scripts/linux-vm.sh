@@ -8,6 +8,7 @@
 #   scripts/linux-vm.sh up      start (first run downloads a ~320 MB Debian image)
 #   scripts/linux-vm.sh hosts   print host entries for a Vibe-SSH hosts.json
 #   scripts/linux-vm.sh ssh     debugging shell (system ssh, isolated from your SSH config)
+#   scripts/linux-vm.sh password  the generated password of the `ops` user
 #   scripts/linux-vm.sh down    stop; add --wipe to also delete the disk
 set -eu
 
@@ -15,12 +16,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VM="$ROOT/target/vm"
 SSH_PORT=${VIBE_VM_SSH_PORT:-42022}
 HTTP_PORT=${VIBE_VM_HTTP_PORT:-42080}
+APP_PORT=${VIBE_VM_APP_PORT:-42081}
 IMAGE_URL=https://cloud.debian.org/images/cloud/trixie/latest
 IMAGE=debian-13-genericcloud-arm64.qcow2
 FIRMWARE=${VIBE_VM_FIRMWARE:-/opt/homebrew/share/qemu/edk2-aarch64-code.fd}
-# Local-only test credential for the password and sudo-prompt paths; the VM is reachable
-# from this machine alone.
-OPS_PASSWORD=vibe-ssh-local-test
+# The password for the `ops` user (password login, sudo prompt) and the passphrase of
+# id_encrypted. Generated per VM and kept next to its disk, never in the repository.
+password() { cat "$VM/ops_password"; }
 
 running() { [ -f "$VM/qemu.pid" ] && kill -0 "$(cat "$VM/qemu.pid")" 2>/dev/null; }
 fingerprint() { ssh-keygen -lf "$VM/host_key.pub" | awk '{print $2}'; }
@@ -49,8 +51,9 @@ up() {
             rm -f "$key" "$key.pub"
             ssh-keygen -q -t ed25519 -N "" -C "vibe-ssh-vm-$key" -f "$key"
         done
+        (umask 077 && openssl rand -hex 12 > ops_password)
         rm -f id_encrypted id_encrypted.pub
-        ssh-keygen -q -t ed25519 -N "$OPS_PASSWORD" -C vibe-ssh-vm-encrypted -f id_encrypted
+        ssh-keygen -q -t ed25519 -N "$(password)" -C vibe-ssh-vm-encrypted -f id_encrypted
         echo "[127.0.0.1]:$SSH_PORT $(cut -d' ' -f1,2 host_key.pub)" > known_hosts
         rm -rf seed && mkdir seed
         printf 'instance-id: vibe-ssh-vm\nlocal-hostname: vibe-vm\n' > seed/meta-data
@@ -74,19 +77,21 @@ up() {
             echo "    shell: /bin/bash"
             echo "    lock_passwd: false"
             echo "    sudo: 'ALL=(ALL) ALL'"
+            echo "    ssh_authorized_keys:"
+            echo "      - $(cat id_deploy.pub)"
             echo "chpasswd:"
             echo "  expire: false"
             echo "  users:"
-            echo "    - {name: ops, password: $OPS_PASSWORD, type: text}"
+            echo "    - {name: ops, password: $(password), type: text}"
         } > seed/user-data
         rm -f seed.iso
         hdiutil makehybrid -quiet -o seed.iso -iso -joliet -default-volume-name cidata seed
         qemu-img create -q -f qcow2 -F qcow2 -b "$IMAGE" disk.qcow2 16G
         rm -f vars.fd && dd if=/dev/zero of=vars.fd bs=1m count=64 2>/dev/null
     fi
-    for port in "$SSH_PORT" "$HTTP_PORT"; do
+    for port in "$SSH_PORT" "$HTTP_PORT" "$APP_PORT"; do
         if nc -z 127.0.0.1 "$port" 2>/dev/null; then
-            echo "port $port is in use; set VIBE_VM_SSH_PORT / VIBE_VM_HTTP_PORT" >&2; exit 1
+            echo "port $port is in use; set VIBE_VM_SSH_PORT / VIBE_VM_HTTP_PORT / VIBE_VM_APP_PORT" >&2; exit 1
         fi
     done
     qemu-system-aarch64 -machine virt -accel hvf -cpu host -smp 2 -m 2048 \
@@ -94,14 +99,14 @@ up() {
         -drive if=pflash,format=raw,file=vars.fd \
         -drive if=virtio,format=qcow2,file=disk.qcow2 \
         -drive if=virtio,format=raw,readonly=on,file=seed.iso \
-        -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80" \
+        -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$APP_PORT-:8080" \
         -device virtio-net-pci,netdev=n0 \
         -display none -serial file:console.log -daemonize -pidfile qemu.pid
     printf 'booting'
     for _ in $(seq 1 90); do
         if vm_ssh true 2>/dev/null; then
             vm_ssh 'cloud-init status --wait >/dev/null 2>&1 || true'
-            echo " ready: ssh 127.0.0.1:$SSH_PORT, http 127.0.0.1:$HTTP_PORT, host key $(fingerprint)"
+            echo " ready: ssh 127.0.0.1:$SSH_PORT; the server's ports 80 and 8080 are http://127.0.0.1:$HTTP_PORT and http://127.0.0.1:$APP_PORT; host key $(fingerprint)"
             return
         fi
         printf '.'
@@ -119,7 +124,9 @@ hosts() {
    "identity_file": "$VM/id_deploy", "host_key_sha256": "$fp", "agent_access": true},
   {"id": "vm-encrypted", "name": "虚拟机（加密私钥）", "host": "127.0.0.1", "port": $SSH_PORT, "username": "deploy",
    "identity_file": "$VM/id_encrypted", "host_key_sha256": "$fp", "agent_access": true},
-  {"id": "vm-ops", "name": "虚拟机（密码登录，sudo 要密码）", "host": "127.0.0.1", "port": $SSH_PORT, "username": "ops",
+  {"id": "vm-ops", "name": "虚拟机（sudo 要密码）", "host": "127.0.0.1", "port": $SSH_PORT, "username": "ops",
+   "identity_file": "$VM/id_deploy", "host_key_sha256": "$fp", "agent_access": true},
+  {"id": "vm-password", "name": "虚拟机（密码登录）", "host": "127.0.0.1", "port": $SSH_PORT, "username": "ops",
    "identity_file": null, "host_key_sha256": "$fp", "agent_access": true}
 ]
 JSON
@@ -134,7 +141,7 @@ down() {
     fi
     rm -f "$VM/qemu.pid"
     if [ "${1:-}" = "--wipe" ]; then
-        rm -rf "$VM/disk.qcow2" "$VM/vars.fd" "$VM/seed" "$VM/seed.iso" "$VM/console.log"
+        rm -rf "$VM/disk.qcow2" "$VM/vars.fd" "$VM/seed" "$VM/seed.iso" "$VM/console.log" "$VM/ops_password"
         echo "disk wiped; the next 'up' starts from a clean server"
     fi
 }
@@ -144,6 +151,6 @@ case "${1:-}" in
     hosts) hosts ;;
     ssh) shift; vm_ssh "$@" ;;
     down) shift; down "$@" ;;
-    password) echo "$OPS_PASSWORD" ;;
-    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    password) password ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

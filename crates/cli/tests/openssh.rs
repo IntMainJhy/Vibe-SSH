@@ -481,6 +481,9 @@ async fn headless_serve_answers_and_a_missing_service_is_reported() {
     assert!(
         String::from_utf8_lossy(&run(&["skill"]).stdout).contains("[vibe-ssh:skill] end of guide")
     );
+    let flow = run(&["skill", "compose"]);
+    assert!(String::from_utf8_lossy(&flow.stdout).contains("docker compose -p APP"));
+    assert_eq!(run(&["skill", "kubernetes"]).status.code(), Some(2));
 
     let mut server = std::process::Command::new(env!("CARGO_BIN_EXE_vibe-ssh"))
         .arg("serve")

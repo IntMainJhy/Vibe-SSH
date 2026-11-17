@@ -192,6 +192,14 @@ async fn install_skill(kernel: Kernel<'_>) -> Reply<Value> {
     skill::install(kernel.home(), &user_home(), cli.as_deref()).map_err(fail)
 }
 
+/// Script errors, blocked resources and layout facts from the window. Shown when traced.
+#[tauri::command]
+fn ui_report(message: String) {
+    if std::env::var_os("VIBE_SSH_TRACE").is_some() {
+        eprintln!("ui {message}");
+    }
+}
+
 /// Registers the kernel and every human command. Shared with the tests' mock runtime.
 fn commands<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
@@ -212,7 +220,8 @@ fn commands<R: tauri::Runtime>(
             job_input,
             job_resize,
             job_interrupt,
-            install_skill
+            install_skill,
+            ui_report
         ]);
     // VIBE_SSH_TRACE=1 logs which commands the interface calls, for diagnosing a blank window.
     let trace = std::env::var_os("VIBE_SSH_TRACE").is_some();

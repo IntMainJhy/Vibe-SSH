@@ -50,6 +50,9 @@ export type Chunk = {
 export const call = <T = void>(command: string, args?: Record<string, unknown>) =>
   invoke<T>(command, args);
 
+/** Diagnostics for the packaged app: printed by the app when run with VIBE_SSH_TRACE=1. */
+export const report = (message: string) => void call("ui_report", { message }).catch(() => {});
+
 const EXPLAIN: Record<string, string> = {
   HOST_KEY_MISMATCH: "服务器的指纹和你核对过的不一致，已停止连接。请确认服务器没有被替换，再到服务器设置里重新核对指纹。",
   AUTHENTICATION_FAILED: "登录被拒绝。请检查用户名、私钥或密码。",

@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
-import { call, type Chunk } from "./api";
+import { call, report, type Chunk } from "./api";
 
 const ENDED = { succeeded: "已结束", failed: "已失败", unknown: "结果未知，请到服务器上核实" };
 
@@ -67,7 +67,10 @@ export function Terminal({ space, job, pty, writable }: Props) {
           await new Promise<void>((done) => xterm.write(Uint8Array.from(chunk.out), done));
         }
         next = chunk.next;
-        if (chunk.out.length < 65_536) live = true;
+        if (!live && chunk.out.length < 65_536) {
+          live = true;
+          report(`terminal ${xterm.cols}x${xterm.rows} in ${box.current?.clientWidth}px`);
+        }
         if (chunk.status !== "running" && chunk.out.length + chunk.err.length === 0 && live) {
           const code = chunk.exit_code === null ? "" : `，退出码 ${chunk.exit_code}`;
           xterm.write(`\r\n\x1b[2m[${ENDED[chunk.status]}${code}]\x1b[0m\r\n`);
