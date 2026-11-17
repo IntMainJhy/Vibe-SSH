@@ -84,19 +84,24 @@ button.primary:hover:not(:disabled) {
   z-index: 2;
 }
 .rail-brand {
-  background: #1b1b1b;
-  color: #fff;
-  border-color: #1b1b1b;
-  width: 38px;
-  height: 38px;
+  background: transparent;
+  border-color: transparent;
+  width: 42px;
+  height: 42px;
   padding: 0;
   border-radius: 11px;
-  box-shadow: 0 5px 14px #00000012;
-  margin-bottom: 28px;
+  box-shadow: none;
+  margin-bottom: 24px;
+}
+.rail-brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .rail-brand:hover:not(:disabled) {
-  background: #383838;
-  border-color: #383838;
+  background: var(--hover);
+  border-color: transparent;
 }
 .app-rail nav {
   display: flex;

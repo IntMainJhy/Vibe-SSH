@@ -20,6 +20,7 @@ import { History } from "./History";
 import { Workbench, STATUS, failedJobs, type HomeView } from "./Workbench";
 import { Resources } from "./Resources";
 import { TransferTray, useTransfers, type TransferStart } from "./Transfers";
+import brandIcon from "../src-tauri/icons/128x128.png";
 
 const Terminal = lazy(() =>
   import("./Terminal").then((module) => ({ default: module.Terminal })),
@@ -180,7 +181,7 @@ export function App() {
           title="Vibe-SSH"
           onClick={() => goHome()}
         >
-          <Icon name="terminal" size={21} />
+          <img src={brandIcon} alt="" width={42} height={42} />
         </button>
         <nav>
           {(
