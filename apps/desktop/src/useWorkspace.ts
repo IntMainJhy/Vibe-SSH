@@ -1,49 +1,40 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { call, explain, type Snapshot } from "./api";
+import { createReadPoller } from "./read-poller";
 
 /** One snapshot in flight; changes arriving during it trigger one more read. */
 export function useWorkspace() {
   const [data, setData] = useState<Snapshot>();
   const [error, setError] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
-  const active = useRef(false);
-  const reading = useRef(false);
-  const queued = useRef(false);
+  const poller = useRef<ReturnType<typeof createReadPoller<Snapshot>> | null>(null);
   const refresh = useCallback(async () => {
-    if (reading.current) {
-      queued.current = true;
-      return;
-    }
-    reading.current = true;
-    if (active.current) setRefreshing(true);
-    try {
-      do {
-        queued.current = false;
-        try {
-          const next = await call<Snapshot>("snapshot");
-          if (active.current) {
-            setData(next);
-            setError(undefined);
-          }
-        } catch (e) {
-          if (active.current) setError(explain(e));
-        }
-      } while (active.current && queued.current);
-    } finally {
-      reading.current = false;
-      if (active.current) setRefreshing(false);
-    }
+    await poller.current?.refresh();
   }, []);
   useEffect(() => {
-    active.current = true;
-    const stop = listen("changed", () => void refresh());
-    void stop.then(() => refresh()).catch((e) => setError(explain(e)));
-    // Detect a quiet connection that has dropped without a running job to publish a change.
-    const poll = setInterval(() => void refresh(), 5000);
+    let active = true;
+    const loop = createReadPoller({
+      read: () => call<Snapshot>("snapshot"),
+      onValue: (next) => {
+        setData(next);
+        setError(undefined);
+      },
+      onError: (e) => setError(explain(e)),
+      onBusy: setRefreshing,
+      visible: () => !document.hidden,
+    });
+    poller.current = loop;
+    const stop = listen("changed", () => void loop.refresh());
+    void stop.then(() => loop.refresh()).catch((e) => {
+      if (active) setError(explain(e));
+    });
+    document.addEventListener("visibilitychange", loop.visibilityChanged);
     return () => {
-      active.current = false;
-      clearInterval(poll);
+      active = false;
+      loop.stop();
+      poller.current = null;
+      document.removeEventListener("visibilitychange", loop.visibilityChanged);
       void stop.then((off) => off()).catch(() => {});
     };
   }, [refresh]);

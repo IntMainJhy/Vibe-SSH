@@ -1001,9 +1001,35 @@ button.panel-link {
 }
 .file-column-status {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
   padding: 10px 16px;
   border-top: 1px solid var(--line);
   color: var(--muted);
+  font-size: 12px;
+}
+.file-pagination {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.file-pagination .icon-button {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+}
+.file-sort select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--paper);
+  color: var(--ink);
   font-size: 12px;
 }
 .file-column-placeholder {

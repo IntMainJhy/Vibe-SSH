@@ -2,6 +2,14 @@
 
 Packages and original notes are in [GitHub Releases](https://github.com/IntMainJhy/Vibe-SSH/releases). All 0.2.0 releases listed here are previews.
 
+## Unreleased
+
+- Use the approved connection icon in the app bundle, Dock and navigation.
+- Browse adjacent directories in two columns, with file information and existing file actions.
+- Add natural name, time and size sorting with at most 100 rendered items per column page.
+- Keep cross-page selections reachable and clear stale selections when navigating home.
+- Retry failed read-only monitoring, pause hidden-page polling and serialize refresh bursts.
+
 ## 0.2.0-preview.5
 
 - Complete native core-flow and isolated Keychain passphrase restart acceptance.

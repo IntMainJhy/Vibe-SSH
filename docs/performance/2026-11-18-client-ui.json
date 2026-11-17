@@ -1,0 +1,135 @@
+{
+  "date": "2026-11-18",
+  "scope": "Chromium Vite development-preview directory rendering, not native WebKit or SSH throughput",
+  "baseline_revision": "85cf82a",
+  "after_sources_sha256": {
+    "apps/desktop/src/Files.tsx": "ab6fd44e5a7d9420696543a407fa39fe5c4a9a4b6946b5a63db2f8667a74887c",
+    "apps/desktop/src/file-list.ts": "a594fc5ad237e7768049ddde5370de671135b6d7d4f8fd3be3b0abb1eae5fa58",
+    "apps/desktop/src/read-poller.ts": "9da7ed9486e00612d8e7377398641042cd85983ce5d27a0d59817184e27ee8c7",
+    "apps/desktop/src/Resources.tsx": "4a83155bdb4d012b468e36c409e891ab13b1d7786950a6bf3330d1dd2900336d",
+    "apps/desktop/src/useWorkspace.ts": "b1f3cf63d07ee80efacb10231991875a4a1ec7f73ca2903c2de9c36a981f5d79",
+    "apps/desktop/src/dev-mock.ts": "261b81461ed4c375c8e263b3f798a12c7d77ce486b85ebbf83ef585211445ceb",
+    "apps/desktop/src/workbench.css": "b64c35f5f9fe60ec228cd3b64cb4a660f76902b77e39f1ee1af2bb5e3c594b62"
+  },
+  "environment": {
+    "system": "Darwin",
+    "architecture": "arm64",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "viewport": {
+      "width": 2048,
+      "height": 978
+    },
+    "rows": 100
+  },
+  "method": {
+    "fixture": "?scenario=large-directory: 5000 synthetic files, reverse numeric names, identical 100 ms mocked metadata-read delay in both versions",
+    "order": "Two discarded warmup trials per version, then five measured samples per version, alternating execution order on one Page. Wait for app intro completion before clicking. No concurrent application compilation during the final recorded run.",
+    "dom_ready": "From captured click to a MutationObserver observing the loaded child column, followed separately by two animation frames.",
+    "p95_note": "Nearest-rank empirical p95 equals the maximum for five samples; not a reliable population tail estimate."
+  },
+  "summary": {
+    "before": {
+      "dom_ready_ms": {
+        "p50": 462.2,
+        "min": 461,
+        "max": 479.2,
+        "empirical_p95_nearest_rank": 479.2
+      },
+      "click_to_frame_ms": {
+        "p50": 726.4,
+        "min": 708.2,
+        "max": 981,
+        "empirical_p95_nearest_rank": 981
+      },
+      "rendered_rows": 5000,
+      "dom_nodes": 35289
+    },
+    "after": {
+      "dom_ready_ms": {
+        "p50": 134.6,
+        "min": 122.4,
+        "max": 142.8,
+        "empirical_p95_nearest_rank": 142.8
+      },
+      "click_to_frame_ms": {
+        "p50": 164.7,
+        "min": 157.9,
+        "max": 167.9,
+        "empirical_p95_nearest_rank": 167.9
+      },
+      "rendered_rows": 100,
+      "dom_nodes": 1008
+    }
+  },
+  "samples": {
+    "before": [
+      {
+        "dom_ready_ms": 468,
+        "click_to_frame_ms": 981,
+        "rendered_rows": 5000,
+        "dom_nodes": 35289
+      },
+      {
+        "dom_ready_ms": 462.19999998807907,
+        "click_to_frame_ms": 723.8000000119209,
+        "rendered_rows": 5000,
+        "dom_nodes": 35289
+      },
+      {
+        "dom_ready_ms": 461,
+        "click_to_frame_ms": 768,
+        "rendered_rows": 5000,
+        "dom_nodes": 35289
+      },
+      {
+        "dom_ready_ms": 479.19999998807907,
+        "click_to_frame_ms": 708.1999999880791,
+        "rendered_rows": 5000,
+        "dom_nodes": 35289
+      },
+      {
+        "dom_ready_ms": 461.4000000357628,
+        "click_to_frame_ms": 726.4000000357628,
+        "rendered_rows": 5000,
+        "dom_nodes": 35289
+      }
+    ],
+    "after": [
+      {
+        "dom_ready_ms": 142.80000001192093,
+        "click_to_frame_ms": 157.9000000357628,
+        "rendered_rows": 100,
+        "dom_nodes": 1008
+      },
+      {
+        "dom_ready_ms": 134.60000002384186,
+        "click_to_frame_ms": 161.19999998807907,
+        "rendered_rows": 100,
+        "dom_nodes": 1008
+      },
+      {
+        "dom_ready_ms": 124.10000002384186,
+        "click_to_frame_ms": 164.69999998807907,
+        "rendered_rows": 100,
+        "dom_nodes": 1008
+      },
+      {
+        "dom_ready_ms": 134.70000004768372,
+        "click_to_frame_ms": 167.9000000357628,
+        "rendered_rows": 100,
+        "dom_nodes": 1008
+      },
+      {
+        "dom_ready_ms": 122.40000003576279,
+        "click_to_frame_ms": 165.19999998807907,
+        "rendered_rows": 100,
+        "dom_nodes": 1008
+      }
+    ]
+  },
+  "limits": [
+    "Development React and mock metadata; no disk, remote server, network, file-content hashing or native renderer measured.",
+    "After renders the first 100-item page; all loaded entries remain available via paging/filtering. Backend directory limits and truncation semantics are unchanged.",
+    "No overall speed multiple, startup, native CPU/RSS or public-network conclusion follows from this test."
+  ]
+}

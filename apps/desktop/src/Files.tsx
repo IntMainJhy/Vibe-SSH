@@ -1,32 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, explain } from "./api";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { TextEditor } from "./TextEditor";
 import { DirectoryDiff } from "./DirectoryDiff";
 import { bytes, type TransferStart } from "./Transfers";
+import { arrangeFiles, fileModified, filePage, FILE_PAGE_SIZE, type Entry, type FileSort } from "./file-list";
 
-type Entry = {
-  name: string;
-  path: string;
-  kind: "file" | "directory" | "symlink" | "other";
-  size: number | null;
-  modified: number | null;
-  permissions: number | null;
-};
 type Directory = { path: string; entries: Entry[]; truncated: boolean };
 type Action = { kind: "mkdir" | "rename" | "delete"; entry?: Entry };
 const isDirectory = (entry: Entry) =>
   entry.kind === "directory" || entry.kind === "symlink";
-const modified = (entry: Entry) =>
-  entry.modified
-    ? new Date(entry.modified * 1000).toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
+const modified = (entry: Entry) => fileModified(entry.modified);
 const permissions = (entry: Entry) =>
   entry.permissions == null ? "—" : (entry.permissions & 0o7777).toString(8);
 export function Files({
@@ -57,6 +42,7 @@ export function Files({
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<FileSort>("name-asc");
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState<Entry>();
   const [comparing, setComparing] = useState<string>();
@@ -67,6 +53,7 @@ export function Files({
   const serial = useRef(0);
   const childSerial = useRef(0);
   const prefetched = useRef<Directory | undefined>(undefined);
+  const resetSelection = useRef(false);
   const restoreEditor = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (editing || loading || !restoreEditor.current) return;
@@ -84,6 +71,8 @@ export function Files({
     const generation = ++serial.current;
     const cached = prefetched.current;
     prefetched.current = undefined;
+    const reset = resetSelection.current;
+    resetSelection.current = false;
     setLoading(!cached);
     setError("");
     const request =
@@ -94,7 +83,7 @@ export function Files({
       .then((result) => {
         if (serial.current !== generation) return;
         setData(result);
-        setSelected((current) =>
+        setSelected((current) => reset ? undefined :
           result.entries.find((entry) => entry.path === current?.path),
         );
       })
@@ -140,6 +129,7 @@ export function Files({
     setLocation(activeDirectory.path);
   }, [activeDirectory]);
   const open = (next: string) => {
+    resetSelection.current = true;
     setPath(next);
     setReload((n) => n + 1);
   };
@@ -192,14 +182,9 @@ export function Files({
       setSaving(false);
     }
   };
-  const filter = (directory?: Directory) =>
-    directory?.entries.filter(
-      (entry) =>
-        (hidden || !entry.name.startsWith(".")) &&
-        entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-    ) ?? [];
-  const entries = filter(data);
-  const childEntries = filter(children);
+  const entries = useMemo(() => arrangeFiles(data?.entries ?? [], query, hidden, sort), [data, query, hidden, sort]);
+  const childEntries = useMemo(() => arrangeFiles(children?.entries ?? [], query, hidden, sort), [children, query, hidden, sort]);
+  const viewKey = `${query}\0${hidden}\0${sort}`;
   return (
     <section className="files-page">
       <div className="file-toolbar">
@@ -266,6 +251,17 @@ export function Files({
           隐藏文件
         </label>
         <span className="grow" />
+        <label className="file-sort">
+          <span className="sr-only">文件排序</span>
+          <select aria-label="文件排序" value={sort} onChange={(event) => setSort(event.target.value as FileSort)}>
+            <option value="name-asc">名称 ↑</option>
+            <option value="name-desc">名称 ↓</option>
+            <option value="modified-desc">最近修改</option>
+            <option value="modified-asc">最早修改</option>
+            <option value="size-desc">最大文件</option>
+            <option value="size-asc">最小文件</option>
+          </select>
+        </label>
         <button
           disabled={!activeDirectory || busy}
           onClick={() => setComparing(activeDirectory!.path)}
@@ -308,6 +304,7 @@ export function Files({
           loading={loading}
           error={error}
           query={query}
+          viewKey={viewKey}
           selected={selected?.path}
           onChoose={(entry) => choose(entry, false)}
         />
@@ -321,6 +318,7 @@ export function Files({
             disabled={loading}
             error={childError}
             query={query}
+            viewKey={viewKey}
             onChoose={(entry) => choose(entry, true)}
             onRetry={() => setReload((n) => n + 1)}
             actions={
@@ -483,7 +481,7 @@ export function Files({
 
 function FileColumn({
   title, directory, path, entries, selected, loading, disabled = false,
-  error, query, onChoose, onRetry, actions,
+  error, query, viewKey, onChoose, onRetry, actions,
 }: {
   title: string;
   directory?: Directory;
@@ -494,10 +492,23 @@ function FileColumn({
   disabled?: boolean;
   error: string;
   query: string;
+  viewKey: string;
   onChoose: (entry: Entry) => void;
   onRetry?: () => void;
   actions?: ReactNode;
 }) {
+  const key = `${directory?.path ?? path}\0${viewKey}`;
+  const [paging, setPaging] = useState({ key, page: 0 });
+  const scroll = useRef<HTMLDivElement>(null);
+  const visible = filePage(entries, paging.key === key ? paging.page : 0);
+  useEffect(() => {
+    const index = selected ? entries.findIndex(entry => entry.path === selected) : -1;
+    if (index >= 0) {
+      const next = Math.floor(index / FILE_PAGE_SIZE);
+      setPaging(old => old.key === key && old.page === next ? old : { key, page: next });
+    }
+  }, [selected, entries, key]);
+  useEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [key, visible.page]);
   return (
     <section className="file-column" aria-label={title} aria-busy={loading}>
       <header className="file-column-heading">
@@ -507,7 +518,7 @@ function FileColumn({
         </div>
         <div className="file-column-actions">{actions}</div>
       </header>
-      <div className="file-column-scroll">
+      <div className="file-column-scroll" ref={scroll}>
         {error && onRetry && (
           <div className="file-column-error" role="alert">
             <Icon name="alert" size={22} />
@@ -516,7 +527,7 @@ function FileColumn({
           </div>
         )}
         <ul className="file-column-list">
-          {entries.map((entry) => (
+          {visible.entries.map((entry) => (
             <li key={entry.path}>
               <button className="file-column-entry" title={entry.path}
                 aria-label={`选择 ${entry.name}`} aria-pressed={selected === entry.path}
@@ -539,9 +550,28 @@ function FileColumn({
           </div>
         )}
       </div>
-      <div className="file-column-status" role="status">
-        {loading ? "读取中…" : `${entries.length} 个项目`}
-        {directory?.truncated && " · 已达显示上限"}
+      <div className="file-column-status">
+        <span role="status">
+          {loading ? "读取中…" : visible.pages > 1
+            ? `${visible.start + 1}–${visible.start + visible.entries.length} / ${entries.length} 项`
+            : `${entries.length} 个项目`}
+          {directory?.truncated && " · 已达显示上限"}
+        </span>
+        {visible.pages > 1 && (
+          <nav className="file-pagination" aria-label={`${title}分页`}>
+            <button className="icon-button" aria-label={`${title}上一页`}
+              disabled={loading || disabled || visible.page === 0}
+              onClick={() => setPaging({ key, page: visible.page - 1 })}>
+              <Icon name="back" size={14} />
+            </button>
+            <span>{visible.page + 1}/{visible.pages}</span>
+            <button className="icon-button" aria-label={`${title}下一页`}
+              disabled={loading || disabled || visible.page === visible.pages - 1}
+              onClick={() => setPaging({ key, page: visible.page + 1 })}>
+              <Icon name="chevron" size={14} />
+            </button>
+          </nav>
+        )}
       </div>
     </section>
   );

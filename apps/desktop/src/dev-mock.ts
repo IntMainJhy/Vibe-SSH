@@ -185,6 +185,13 @@ for (const [path, kind] of [
     permissions: kind === "directory" ? 0o40755 : 0o100644,
   });
 }
+if (scenario === "large-directory") {
+  fileEntries.push({ name: "large", path: "/home/deploy/large", kind: "directory", size: 4096, modified: 1794901800, permissions: 0o40755 });
+  for (let i = 5000; i > 0; i--) {
+    fileEntries.push({ name: `file-${i}.txt`, path: `/home/deploy/large/file-${i}.txt`, kind: "file", size: i * 17, modified: 1794901800 + i, permissions: 0o100644 });
+  }
+}
+let resourceCalls = 0;
 const documents = new Map<
   string,
   { path: string; text: string; revision: string; save_supported: boolean }
@@ -394,6 +401,8 @@ mockIPC(
       }
       case "resources":
         await sleep(150);
+        if (scenario === "resources-recover" && ++resourceCalls === 1)
+          throw { message: "采样暂时不可用，连接正在恢复。" };
         return {
           cpu_percent: 12.4,
           cores: 4,

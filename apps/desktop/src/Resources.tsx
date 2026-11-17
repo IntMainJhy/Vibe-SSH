@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call, explain } from "./api";
 import { Icon, type IconName } from "./Icon";
 import { bytes } from "./Transfers";
+import { createReadPoller } from "./read-poller";
 
 type Sample = {
   cpu_percent: number | null;
@@ -26,21 +27,12 @@ export function Resources({ space }: { space: string }) {
   const [dimension, setDimension] = useState<"cpu" | "memory">("cpu");
   const [at, setAt] = useState<Date>();
   const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
+  const poller = useRef<ReturnType<typeof createReadPoller<Sample>> | null>(null);
   const [sampling, setSampling] = useState(false);
   useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const sample = async () => {
-      if (!alive) return;
-      if (document.hidden) {
-        timer = setTimeout(() => void sample(), 5000);
-        return;
-      }
-      setSampling(true);
-      try {
-        const result = await call<Sample>("resources", { space });
-        if (!alive) return;
+    const loop = createReadPoller({
+      read: () => call<Sample>("resources", { space }),
+      onValue: (result) => {
         setSample(result);
         setAt(new Date());
         setError("");
@@ -54,19 +46,20 @@ export function Resources({ space }: { space: string }) {
             ),
           },
         ]);
-        timer = setTimeout(() => void sample(), 5000);
-      } catch (e) {
-        if (alive) setError(explain(e));
-      } finally {
-        if (alive) setSampling(false);
-      }
-    };
-    void sample();
+      },
+      onError: (e) => setError(explain(e)),
+      onBusy: setSampling,
+      visible: () => !document.hidden,
+    });
+    poller.current = loop;
+    void loop.refresh();
+    document.addEventListener("visibilitychange", loop.visibilityChanged);
     return () => {
-      alive = false;
-      clearTimeout(timer);
+      loop.stop();
+      poller.current = null;
+      document.removeEventListener("visibilitychange", loop.visibilityChanged);
     };
-  }, [space, refresh]);
+  }, [space]);
   const memory = sample ? sample.memory_total - sample.memory_available : 0;
   return (
     <section className="resources-page">
@@ -80,7 +73,7 @@ export function Resources({ space }: { space: string }) {
             · Linux
           </p>
         </div>
-        <button disabled={sampling} onClick={() => setRefresh((n) => n + 1)}>
+        <button disabled={sampling} onClick={() => void poller.current?.refresh()}>
           <Icon name="refresh" size={15} />
           {sampling ? "采样中…" : "刷新"}
         </button>
