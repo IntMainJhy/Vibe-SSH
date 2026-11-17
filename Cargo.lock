@@ -5522,7 +5522,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibe-ssh-cli"
-version = "0.2.0-preview.3"
+version = "0.2.0-preview.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -5535,7 +5535,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-core"
-version = "0.2.0-preview.3"
+version = "0.2.0-preview.4"
 dependencies = [
  "anyhow",
  "rand 0.10.4",
@@ -5553,7 +5553,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-desktop"
-version = "0.2.0-preview.3"
+version = "0.2.0-preview.4"
 dependencies = [
  "rfd",
  "security-framework",
@@ -5570,7 +5570,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-protocol"
-version = "0.2.0-preview.3"
+version = "0.2.0-preview.4"
 dependencies = [
  "serde",
  "uuid",

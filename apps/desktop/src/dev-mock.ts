@@ -176,7 +176,7 @@ mockIPC(
           throw { code: "SERVICE_UNAVAILABLE", message: "preview unavailable" };
         return structuredClone({
           status: {
-            version: "0.2.0-preview.3",
+            version: "0.2.0-preview.4",
             protocol_version: 2,
             instance: "preview",
           },

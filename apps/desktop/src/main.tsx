@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { report } from "./api";
 import { App } from "./App";
 import "./styles.css";
+import "./workbench.css";
 
 async function start() {
   if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window))

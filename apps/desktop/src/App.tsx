@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { call, type Host, type Job, type Snapshot, type Space } from "./api";
+import { call, type Host, type Job, type Space } from "./api";
 import { explain } from "./api";
 import { HostForm } from "./HostForm";
 import { Icon } from "./Icon";
@@ -16,20 +16,13 @@ import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 import { useWorkspace } from "./useWorkspace";
 import { Files } from "./Files";
+import { Workbench, STATUS, failedJobs, type HomeView } from "./Workbench";
 import { Resources } from "./Resources";
 import { TransferTray, useTransfers, type TransferStart } from "./Transfers";
 
 const Terminal = lazy(() =>
   import("./Terminal").then((module) => ({ default: module.Terminal })),
 );
-const STATUS: Record<Job["status"], string> = {
-  running: "运行中",
-  succeeded: "已完成",
-  failed: "失败",
-  unknown: "结果未知",
-};
-const failedJobs = (space: Space) =>
-  space.jobs.filter((job) => job.status === "failed").length;
 type Page = "terminal" | "files" | "resources";
 type Notice = { text: string; kind: "error" | "success" };
 type Act = (key: string, work: () => Promise<unknown>) => Promise<void>;
@@ -39,6 +32,14 @@ export function App() {
   const preferences = usePreferences();
   const transfers = useTransfers();
   const [selected, select] = useState<string | null>(null);
+  const [intro, setIntro] = useState(true);
+  const ready = !!data;
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(() => setIntro(false), 450);
+    return () => clearTimeout(timer);
+  }, [ready]);
+  const [homeView, setHomeView] = useState<HomeView>("overview");
   const [views, setViews] = useState<
     Record<string, { page: Page; path: string }>
   >({});
@@ -95,7 +96,8 @@ export function App() {
       if (commandKey && !document.querySelector("dialog[open]")) {
         if (event.key.toLowerCase() === "k") {
           event.preventDefault();
-          search.current?.focus();
+          if (matchMedia("(max-width: 680px)").matches) select(null);
+          requestAnimationFrame(() => search.current?.focus());
         }
         if (event.key.toLowerCase() === "n") {
           event.preventDefault();
@@ -126,12 +128,27 @@ export function App() {
     data?.hosts.filter((h) => matches(h.name, h.host, h.username)) ?? [];
   const sessions =
     data?.spaces.filter((s) => matches(s.name, s.host_name, s.actor)) ?? [];
+  const goHome = (view: HomeView = "overview") => {
+    select(null);
+    setHomeView(view);
+    setQuery("");
+  };
+  const goSpace = (id: string, page?: Page, job?: string) => {
+    select(id);
+    setQuery("");
+    if (page)
+      setViews((old) => ({
+        ...old,
+        [id]: { page, path: old[id]?.path ?? "." },
+      }));
+    if (job) setPicked((old) => ({ ...old, [id]: job }));
+  };
   const openTerminal = (host: Host) =>
     act(`connect:${host.id}`, async () => {
       const opened = await call<{ space: string }>("open_terminal", {
         host: host.id,
       });
-      select(opened.space);
+      goSpace(opened.space, "terminal");
     });
 
   const agents =
@@ -143,171 +160,62 @@ export function App() {
         s.jobs.some((j) => j.status === "running"),
     ) ?? [];
   return (
-    <div className="app" data-agent-active={agents.length > 0}>
-      <aside className="sidebar">
-        <div className="traffic-space" data-tauri-drag-region />
-        <div className="brand">
-          <span className="brand-mark">
-            <Icon name="terminal" size={22} />
-          </span>
-          <strong>
-            Vibe<span>SSH</span>
-          </strong>
-          <span className="version" title={data?.status.version}>
-            {data?.status.version.split("-")[0] ?? "0.2.0"}
-          </span>
-        </div>
-        <label className="search">
-          <Icon name="search" size={16} />
-          <input
-            ref={search}
-            aria-label="搜索服务器或会话"
-            placeholder="搜索服务器或会话"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setQuery("");
-                search.current?.blur();
-              }
-            }}
-          />
-          <kbd>⌘ K</kbd>
-        </label>
+    <div
+      className="app"
+      data-agent-active={agents.length > 0}
+      data-session={!!space}
+      data-intro={intro}
+    >
+      <div className="desktop-drag" data-tauri-drag-region aria-hidden="true" />
+      <aside className="app-rail" aria-label="主导航">
         <button
-          className="nav-home"
-          data-active={!space}
-          onClick={() => {
-            select(null);
-            setQuery("");
-          }}
+          className="rail-brand"
+          aria-label="Vibe-SSH 总览"
+          title="Vibe-SSH"
+          onClick={() => goHome()}
         >
-          <Icon name="grid" />
-          工作台<span>{data?.hosts.length ?? 0}</span>
+          <Icon name="terminal" size={21} />
         </button>
-        <nav aria-label="服务器和会话">
-          <Section
-            title="服务器"
-            count={hosts.length}
-            action={
-              <button
-                className="icon-button"
-                aria-label="添加服务器"
-                title="添加服务器（⌘N）"
-                onClick={() => setEditing("new")}
-              >
-                <Icon name="plus" size={16} />
-              </button>
-            }
-          >
-            {hosts.map((host) => (
-              <div className="host-nav" key={host.id}>
-                <button
-                  className="host-nav-main"
-                  title={`${host.username}@${host.host}:${host.port}`}
-                  disabled={pending.includes(`connect:${host.id}`)}
-                  onClick={() => void openTerminal(host)}
-                >
-                  <span className="server-glyph">
-                    <Icon name="server" size={17} />
-                  </span>
-                  <span className="nav-text">
-                    <strong>{host.name}</strong>
-                    <small>
-                      {pending.includes(`connect:${host.id}`)
-                        ? "正在连接…"
-                        : host.host}
-                    </small>
-                  </span>
-                </button>
-                <button
-                  className="icon-button settings"
-                  aria-label={`设置 ${host.name}`}
-                  onClick={() => setEditing(host)}
-                >
-                  <Icon name="settings" size={15} />
-                </button>
-              </div>
-            ))}
-            {!hosts.length && (
-              <p className="nav-empty">
-                {query ? "没有匹配的服务器" : "还没有添加服务器"}
-              </p>
-            )}
-          </Section>
-          <Section title="会话" count={sessions.length}>
-            {sessions.map((s) => (
-              <button
-                className="session-nav"
-                key={s.space}
-                data-active={s.space === space?.space}
-                onClick={() => select(s.space)}
-              >
-                <span className="session-icon" data-kind={s.origin}>
-                  <Icon
-                    name={s.origin === "agent" ? "link" : "terminal"}
-                    size={17}
-                  />
-                </span>
-                <span className="nav-text">
-                  <strong>{s.origin === "agent" ? s.name : s.host_name}</strong>
-                  <small>
-                    {!s.connected
-                      ? "连接已断开"
-                      : s.control.note
-                        ? "等待你处理"
-                        : s.origin === "agent"
-                          ? s.control.owner === "human"
-                            ? "你已接管"
-                            : "Agent 操作"
-                          : "我的终端"}
-                    {failedJobs(s) > 0 && (
-                      <span className="failure-note">
-                        {" "}
-                        · {failedJobs(s)} 项失败
-                      </span>
-                    )}
-                  </small>
-                </span>
-                <span
-                  className="dot"
-                  data-status={
-                    !s.connected
-                      ? "unknown"
-                      : s.jobs.some((j) => j.status === "running")
-                        ? "running"
-                        : "succeeded"
-                  }
-                />
-              </button>
-            ))}
-            {!sessions.length && (
-              <p className="nav-empty">
-                {query ? "没有匹配的会话" : "连接服务器后，会话出现在这里"}
-              </p>
-            )}
-          </Section>
-        </nav>
-        <footer className="sidebar-footer">
-          {data?.integration &&
-          (data.integration.error || data.integration.skipped?.length) ? (
-            <p
-              className="integration-warning"
-              role="status"
-              title={
-                data.integration.error ||
-                data.integration.skipped
-                  ?.map((s) => `${s.path}: ${s.reason}`)
-                  .join("\n")
+        <nav>
+          {(
+            [
+              ["overview", "grid", "总览"],
+              ["servers", "server", "服务器"],
+              ["sessions", "terminal", "会话"],
+            ] as const
+          ).map(([view, icon, label]) => (
+            <button
+              key={view}
+              className="rail-button"
+              aria-label={label}
+              aria-current={
+                (space ? view === "sessions" : homeView === view)
+                  ? "page"
+                  : undefined
               }
+              onClick={() => goHome(view)}
             >
-              接入配置需要处理：已有同名内容或目录不可写。请检查配置目录。
-            </p>
-          ) : null}
-          <label className="appearance">
+              <Icon name={icon} size={19} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="rail-bottom">
+          <button
+            className="icon-button rail-search"
+            aria-label="搜索服务器或会话"
+            title="搜索（⌘K）"
+            onClick={() => {
+              select(null);
+              requestAnimationFrame(() => search.current?.focus());
+            }}
+          >
+            <Icon name="search" size={18} />
+          </button>
+          <label className="rail-appearance" title="界面外观">
             <Icon
               name={preferences.theme === "dark" ? "moon" : "sun"}
-              size={15}
+              size={19}
             />
             <select
               aria-label="界面外观"
@@ -320,41 +228,213 @@ export function App() {
               <option value="light">浅色模式</option>
               <option value="dark">深色模式</option>
             </select>
-            <span className="local-status">
-              <span
-                className="dot"
-                data-status={error ? "unknown" : data ? "succeeded" : "running"}
-              />
+          </label>
+          <span
+            className="rail-status"
+            title={error ? "服务异常" : data ? "已就绪" : "连接中"}
+            role="status"
+          >
+            <span
+              className="dot"
+              data-status={error ? "unknown" : data ? "succeeded" : "running"}
+            />
+            <span className="sr-only">
               {error ? "服务异常" : data ? "已就绪" : "连接中"}
             </span>
-          </label>
-        </footer>
+          </span>
+        </div>
       </aside>
+      {space && (
+        <aside className="sidebar">
+          <div className="context-heading">
+            <strong>工作空间</strong>
+            <span>{data?.spaces.length ?? 0}</span>
+          </div>
+          <button className="nav-home" onClick={() => goHome()}>
+            <Icon name="back" size={15} />
+            返回总览
+          </button>
+          <nav aria-label="服务器和会话">
+            <Section
+              title="服务器"
+              count={hosts.length}
+              action={
+                <button
+                  className="icon-button"
+                  aria-label="添加服务器"
+                  title="添加服务器（⌘N）"
+                  onClick={() => setEditing("new")}
+                >
+                  <Icon name="plus" size={16} />
+                </button>
+              }
+            >
+              {hosts.map((host) => (
+                <div className="host-nav" key={host.id}>
+                  <button
+                    className="host-nav-main"
+                    title={`${host.username}@${host.host}:${host.port}`}
+                    disabled={pending.includes(`connect:${host.id}`)}
+                    onClick={() => void openTerminal(host)}
+                  >
+                    <span className="server-glyph">
+                      <Icon name="server" size={17} />
+                    </span>
+                    <span className="nav-text">
+                      <strong>{host.name}</strong>
+                      <small>
+                        {pending.includes(`connect:${host.id}`)
+                          ? "正在连接…"
+                          : host.host}
+                      </small>
+                    </span>
+                  </button>
+                  <button
+                    className="icon-button settings"
+                    aria-label={`设置 ${host.name}`}
+                    onClick={() => setEditing(host)}
+                  >
+                    <Icon name="settings" size={15} />
+                  </button>
+                </div>
+              ))}
+              {!hosts.length && (
+                <p className="nav-empty">
+                  {query ? "没有匹配的服务器" : "还没有添加服务器"}
+                </p>
+              )}
+            </Section>
+            <Section title="会话" count={sessions.length}>
+              {sessions.map((s) => (
+                <button
+                  className="session-nav"
+                  key={s.space}
+                  data-active={s.space === space?.space}
+                  onClick={() => goSpace(s.space)}
+                >
+                  <span className="session-icon" data-kind={s.origin}>
+                    <Icon
+                      name={s.origin === "agent" ? "link" : "terminal"}
+                      size={17}
+                    />
+                  </span>
+                  <span className="nav-text">
+                    <strong>
+                      {s.origin === "agent" ? s.name : s.host_name}
+                    </strong>
+                    <small>
+                      {!s.connected
+                        ? "连接已断开"
+                        : s.control.note
+                          ? "等待你处理"
+                          : s.origin === "agent"
+                            ? s.control.owner === "human"
+                              ? "你已接管"
+                              : "Agent 操作"
+                            : "我的终端"}
+                      {failedJobs(s) > 0 && (
+                        <span className="failure-note">
+                          {" "}
+                          · {failedJobs(s)} 项失败
+                        </span>
+                      )}
+                    </small>
+                  </span>
+                  <span
+                    className="dot"
+                    data-status={
+                      !s.connected
+                        ? "unknown"
+                        : s.jobs.some((j) => j.status === "running")
+                          ? "running"
+                          : "succeeded"
+                    }
+                  />
+                </button>
+              ))}
+              {!sessions.length && (
+                <p className="nav-empty">
+                  {query ? "没有匹配的会话" : "连接服务器后，会话出现在这里"}
+                </p>
+              )}
+            </Section>
+          </nav>
+          <div className="context-footer">
+            <Icon name="shield" size={14} />
+            <span>独立连接 · 随时接管</span>
+          </div>
+        </aside>
+      )}
       <main className={`main ${space ? "in-session" : ""}`}>
-        <div className="window-bar" data-tauri-drag-region>
-          <div className="breadcrumbs">
-            <Icon name={space ? "terminal" : "grid"} size={15} />
-            <button onClick={() => select(null)}>工作台</button>
-            {space && (
-              <>
-                <span>/</span>
-                <span>{space.host_name}</span>
-              </>
+        <header className="window-bar" data-tauri-drag-region>
+          <div className="topbar-heading">
+            <div className="breadcrumbs">
+              <button onClick={() => goHome()}>Vibe-SSH</button>
+              <span>/</span>
+              <span>
+                {space
+                  ? space.host_name
+                  : homeView === "servers"
+                    ? "服务器"
+                    : homeView === "sessions"
+                      ? "会话"
+                      : "工作台"}
+              </span>
+            </div>
+            {!space && (
+              <h1>
+                {homeView === "servers"
+                  ? "服务器"
+                  : homeView === "sessions"
+                    ? "当前会话"
+                    : "服务器工作台"}
+              </h1>
             )}
           </div>
-          <div className="window-meta">
-            <span className="dot" data-status="succeeded" />
-            SSH 工作空间
+          <div className="topbar-actions">
+            <label className="search">
+              <Icon name="search" size={15} />
+              <input
+                ref={search}
+                aria-label="搜索服务器或会话"
+                placeholder="搜索服务器、地址或会话…"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (e.target.value) select(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setQuery("");
+                    search.current?.blur();
+                  }
+                }}
+              />
+              <kbd>⌘ K</kbd>
+            </label>
             <button
-              className="icon-button"
+              className="icon-button topbar-refresh"
               aria-label="刷新状态"
+              title="刷新状态"
               disabled={refreshing}
               onClick={() => void refresh()}
             >
-              <Icon name="refresh" size={15} />
+              <Icon name="refresh" size={17} />
             </button>
+            {!space && (
+              <button className="add-server" onClick={() => setEditing("new")}>
+                <Icon name="plus" size={16} />
+                添加服务器
+              </button>
+            )}
           </div>
-        </div>
+        </header>
+        {data?.integration &&
+        (data.integration.error || data.integration.skipped?.length) ? (
+          <p className="integration-warning" role="status">
+            接入配置需要处理：已有同名内容或目录不可写。请检查配置目录。
+          </p>
+        ) : null}
         {error && (
           <div className="error-banner" role="alert">
             <Icon name="alert" size={16} />
@@ -415,7 +495,10 @@ export function App() {
             pending={pending}
             onConnect={openTerminal}
             onEdit={setEditing}
-            onSelect={select}
+            sessions={sessions}
+            view={homeView}
+            onView={goHome}
+            onSelect={goSpace}
           />
         )}
       </main>
@@ -423,7 +506,7 @@ export function App() {
         <button
           className="agent-activity"
           aria-label={`${agents[0].actor} 正在操作 ${agents[0].name}，点击查看空间`}
-          onClick={() => select(agents[0].space)}
+          onClick={() => goSpace(agents[0].space)}
           title={agents.map((s) => `${s.actor} · ${s.name}`).join("\n")}
         >
           <span className="activity-orb" />
@@ -510,225 +593,6 @@ function Section({
       </div>
       {children}
     </section>
-  );
-}
-
-function Workbench({
-  data,
-  hosts,
-  query,
-  pending,
-  onConnect,
-  onEdit,
-  onSelect,
-}: {
-  data: Snapshot;
-  hosts: Host[];
-  query: string;
-  pending: string[];
-  onConnect: (h: Host) => Promise<void>;
-  onEdit: (h: Host | "new") => void;
-  onSelect: (s: string) => void;
-}) {
-  const running = data.spaces
-    .flatMap((s) => s.jobs)
-    .filter((j) => j.status === "running").length;
-  const attention = data.spaces.filter((s) => s.control.note);
-  return (
-    <div className="workbench">
-      <header className="page-heading">
-        <div>
-          <h1>服务器工作台</h1>
-          <p>终端、文件与资源监控。</p>
-        </div>
-        <button
-          className={data.hosts.length ? "add-server" : "primary"}
-          onClick={() => onEdit("new")}
-        >
-          <Icon name="plus" size={17} />
-          添加服务器
-        </button>
-      </header>
-      <div className="workspace-summary">
-        <span>
-          <span className="dot" data-status="succeeded" />
-          <strong>{data.hosts.length}</strong>台服务器
-        </span>
-        <span>
-          <Icon name="terminal" size={16} />
-          <strong>{data.spaces.length}</strong>个会话
-        </span>
-        <span>
-          <Icon name="clock" size={16} />
-          <strong>{running}</strong>个运行中任务
-        </span>
-        {attention.length > 0 && (
-          <button
-            onClick={() => onSelect(attention[0].space)}
-            className="attention-link"
-          >
-            <Icon name="alert" size={15} />
-            {attention.length} 个会话等待处理
-            <Icon name="chevron" size={13} />
-          </button>
-        )}
-      </div>
-      <section className="servers-panel">
-        <div className="panel-heading">
-          <h2>我的服务器</h2>
-          <span>{hosts.length} 台</span>
-        </div>
-        {hosts.length ? (
-          <table className="server-table">
-            <thead>
-              <tr>
-                <th>服务器</th>
-                <th>登录用户</th>
-                <th>Agent 访问</th>
-                <th>
-                  <span className="sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {hosts.map((h) => {
-                const busy = pending.includes(`connect:${h.id}`);
-                return (
-                  <tr key={h.id}>
-                    <td>
-                      <div className="server-name">
-                        <span className="server-tile">
-                          <Icon name="server" size={21} />
-                        </span>
-                        <div>
-                          <strong title={h.name}>{h.name}</strong>
-                          <code>
-                            <span className="endpoint-user">{h.username}@</span>
-                            {h.host}
-                            <span>:{h.port}</span>
-                          </code>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="user-name">{h.username}</span>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${h.agent_access ? "agent" : "neutral"}`}
-                      >
-                        <Icon
-                          name={h.agent_access ? "link" : "shield"}
-                          size={13}
-                        />
-                        {h.agent_access ? "已允许" : "仅自己使用"}
-                      </span>
-                    </td>
-                    <td className="row-actions">
-                      <button onClick={() => void onConnect(h)} disabled={busy}>
-                        <Icon name="terminal" size={15} />
-                        {busy ? "连接中…" : "连接"}
-                      </button>
-                      <button
-                        className="icon-button"
-                        aria-label={`编辑 ${h.name}`}
-                        onClick={() => onEdit(h)}
-                      >
-                        <Icon name="settings" size={17} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty-block">
-            <Icon name={query ? "search" : "server"} size={32} />
-            <h3>{query ? "没有找到匹配的服务器" : "从你的第一台服务器开始"}</h3>
-            <p>
-              {query
-                ? "试试服务器名称、地址或用户名。"
-                : "添加连接资料并核对指纹，即可打开终端。"}
-            </p>
-            {!query && (
-              <button onClick={() => onEdit("new")}>
-                <Icon name="plus" size={16} />
-                添加服务器
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-      <section className="sessions-panel">
-        <div className="panel-heading">
-          <h2>当前会话</h2>
-          <span>点击继续操作</span>
-        </div>
-        {data.spaces.length ? (
-          <div className="session-list">
-            {[...data.spaces].reverse().map((s) => {
-              const last = s.jobs.at(-1);
-              return (
-                <button
-                  key={s.space}
-                  className="session-item"
-                  onClick={() => onSelect(s.space)}
-                >
-                  <span className="session-icon" data-kind={s.origin}>
-                    <Icon
-                      name={s.origin === "agent" ? "link" : "terminal"}
-                      size={18}
-                    />
-                  </span>
-                  <div>
-                    <strong>
-                      {s.origin === "agent" ? s.name : `${s.host_name} · 终端`}
-                    </strong>
-                    <small>
-                      {s.control.note ??
-                        (s.origin === "agent"
-                          ? `${s.actor} · ${s.host_name}`
-                          : "自己的终端，仅你可操作")}
-                    </small>
-                  </div>
-                  <span className="session-status">
-                    <span
-                      className="dot"
-                      data-status={
-                        !s.connected ? "unknown" : (last?.status ?? "succeeded")
-                      }
-                    />
-                    {!s.connected
-                      ? "连接已断开"
-                      : s.control.note
-                        ? "等待处理"
-                        : last
-                          ? STATUS[last.status]
-                          : "已连接"}
-                    {failedJobs(s) > 0 && (
-                      <span className="failure-note">
-                        {" "}
-                        · {failedJobs(s)} 项失败
-                      </span>
-                    )}
-                  </span>
-                  <Icon name="chevron" size={15} />
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="empty-sessions">
-            还没有会话。点击上方的“连接”打开终端。
-          </p>
-        )}
-      </section>
-      <p className="workspace-footnote">
-        <Icon name="shield" size={13} />
-        终端、文件与服务器状态，在同一个工作空间。
-      </p>
-    </div>
   );
 }
 
@@ -858,7 +722,7 @@ function Session({
           )}
         </div>
       )}
-      <nav className="session-pages" aria-label="空间页面">
+      <nav className="session-pages" aria-label="空间页面" data-page={page}>
         <button
           aria-current={page === "terminal" ? "page" : undefined}
           onClick={() => onPage("terminal")}
