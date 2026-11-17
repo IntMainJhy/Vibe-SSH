@@ -1,25 +1,42 @@
 ![Vibe-SSH — AI 操作，随时接管](docs/assets/vibe-ssh-hero.png)
 
-# Vibe-SSH
+<h1 align="center">Vibe-SSH</h1>
 
-**供用户与外部 AI Agent 共同使用的桌面 SSH 客户端。**
+<h3 align="center">为你和外部 AI 打造的 SSH 工作空间</h3>
 
-[![MIT 协议](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![预览版](https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview)](https://github.com/IntMainJhy/Vibe-SSH/releases)
-[![Verify](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml)
-[![macOS](https://img.shields.io/badge/platform-macOS-111111.svg)](docs/installation.md)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563eb?style=flat-square" alt="MIT 开源协议" width="115" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&amp;label=preview&amp;style=flat-square&amp;color=2563eb" alt="最新预览版" width="221" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/IntMainJhy/Vibe-SSH/rust.yml?branch=main&amp;label=verify&amp;style=flat-square" alt="Verify 工作流状态" width="129" height="28" /></a>
+  <a href="docs/installation.md"><img src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square" alt="macOS 桌面客户端" width="148" height="28" /></a>
+</p>
 
-[English](README.md) · 简体中文
+<p align="center">
+  开源的 macOS SSH/SFTP 客户端，支持 <strong>Codex、Claude Code 等外部 AI Agent</strong>。<br />
+  手动添加自己的服务器，通过 Skill 完成网站部署与故障排查。<br />
+  <strong>命令与输出实时可见，任务空间随时接管。</strong>
+</p>
 
-[GitHub 主仓库](https://github.com/IntMainJhy/Vibe-SSH) · [AtomGit 镜像](https://gitcode.com/InMainJhy/Vibe-SSH)
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases">下载 macOS 预览版</a></h3>
 
-Vibe-SSH 是开源的 macOS SSH/SFTP 客户端。你像使用日常 SSH 工具一样手动添加服务器，**Codex、Claude Code 等外部命令行 Agent** 通过 Skill 调用客户端，帮你执行指令、部署网站和排查服务器问题。
+<p align="center">
+  <a href="#可以做什么">功能概览</a> &nbsp;·&nbsp;
+  <a href="docs/installation.md">安装说明</a> &nbsp;·&nbsp;
+  <a href="skills/vibe-ssh/guide.md">Agent 指南</a> &nbsp;·&nbsp;
+  <a href="docs/README.md">技术文档</a> &nbsp;·&nbsp;
+  <a href="ROADMAP.md">路线图</a> &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md">参与贡献</a>
+</p>
 
-Agent 操作时，你能在应用里查看命令、输出和任务状态，随时接管它的任务空间。你自己的终端与 Agent 空间分别使用独立 SSH 连接，可以并行工作。
+<p align="center">
+  <a href="README.md" lang="en">English</a> · <strong>简体中文</strong>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub 主仓库</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit 镜像</a>
+</p>
 
-[下载 macOS 预览版](https://github.com/IntMainJhy/Vibe-SSH/releases) · [安装说明](docs/installation.md) · [Agent 使用指南](skills/vibe-ssh/guide.md) · [路线图](ROADMAP.md) · [参与贡献](CONTRIBUTING.md)
+<p align="center">你的日常终端与 Agent 任务空间使用独立 SSH 连接，可以并行工作。</p>
 
-> **当前为预览版：**提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
+> **当前为预览版：** 提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
 
 ![Vibe-SSH 工作台：服务器导航、会话与 Agent 活动入口](docs/assets/workspace.png)
 
