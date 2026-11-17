@@ -80,5 +80,11 @@ export function explain(error: unknown): string {
     code?: string;
     message?: string;
   };
-  return (code && EXPLAIN[code]) || message || String(error);
+  return (
+    (message && /[\u3400-\u9fff]/.test(message)
+      ? message
+      : code && EXPLAIN[code]) ||
+    message ||
+    String(error)
+  );
 }

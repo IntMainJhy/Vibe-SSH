@@ -2318,3 +2318,13 @@ button.take:hover:not(:disabled) {
     display: none;
   }
 }
+
+@media (max-width: 680px) {
+  .main.in-session {
+    overflow-y: auto;
+  }
+  .files-page {
+    flex: 1 0 340px;
+    min-height: 340px;
+  }
+}
