@@ -18,6 +18,8 @@ version. The guide ends with a line starting `[vibe-ssh:skill] end of guide`;
 if that line is missing the output was truncated, so save it to a file and read
 the file in parts.
 
-If `vibe-ssh` is not found, ask the user to open the Vibe-SSH app and click
-"让 Agent 可以使用", which links the command into `~/.local/bin`. Do not fall
-back to plain `ssh` with the user's keys.
+If `vibe-ssh` is not on PATH, run `"$HOME/.local/bin/vibe-ssh" skill`.
+Opening the installed Vibe-SSH app automatically configures the version-matched
+Skill and command. If neither command exists, ask the user to open the app and
+check its integration warning; never overwrite unrelated skills or fall back
+to plain `ssh` with the user's keys.

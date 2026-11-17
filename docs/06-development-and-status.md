@@ -1,6 +1,25 @@
 # Vibe-SSH 开发与实现状态
 
-日期：2026-11-17。当前阶段：M1 Agent 闭环已实现，并在真实 Linux 服务器（本机虚拟机）上验证；M2 macOS 桌面应用已实现，内核与命令层已验证，真实窗口内的操作尚未经人工确认；M4 的两个部署流程已写入 Skill 并在 Linux 上照原文跑通。
+日期：2026-11-17。当前阶段：M1 Agent 闭环已实现，并在真实 Linux 服务器（隔离虚拟机）上验证；M2 macOS 桌面应用已实现，内核与命令层已验证，真实窗口内的操作尚未经人工确认；M4 的两个部署流程已写入 Skill 并在 Linux 上照原文跑通。
+
+
+## 0.2.0-preview.1 工作空间切片
+
+按用户要求将产品完善为可分发的日常 SSH 客户端，Agent 通过 Skill 使用确定性内核。依据 [ADR 0003](adr/0003-desktop-files-and-onboarding.md) 开发，黑白设计替换早期蓝灰基线，界面不再强调特定设备，也不再有安装 Skill 按钮。
+
+已实现：终端 / 文件 / 监控页签，空间记忆页签与目录，新建终端自动进入；全局 Agent 流光边框和返回入口，支持减少动态效果，切换空间不关闭任务。SFTP 文件浏览、多选单文件上传、单文件下载、新建目录、重命名、删除文件或空目录；流式传输进度和取消在切页后保留，既有同名项目不覆盖。目录最多 5000 项并受字节预算限制。上传中途失去控制权不发布临时文件；旧租约不恢复。文件类型使用精确模式判断，不能把符号链接视为普通文件。
+
+Linux 监控读取 `/proc/stat` 差值、`MemAvailable`、交换空间、负载、运行时间与 `df -Pk /`；只在可见监控页继续轮询，不安装远端服务。实际采样已在 Debian 13 验证；非 Linux 返回明确错误而非零指标。
+
+应用启动自动同步引导 Skill 与 CLI 链接，不更改 shell 配置，不覆盖无关同名目录或悬空链接。发布构建已在临时数据和接入目录中真实启动，自动生成两个 Agent 目录链接与 CLI，并通过该 CLI 完成回环 SSH 执行和关闭空间。应用移动后的自有链接可更新。设备文件选择和保存路径只在桌面人工桥接中使用，Agent 套接字保持 v2。
+
+验证：30 项常规 Rust 测试通过，另有 2 项 Linux 测试必须显式启用（原先 Linux CLI 测试的未启用情况改成真正 ignored，避免将跳过计成通过）。文件测试含真实 OpenSSH 的内容读回、引号和中文路径、符号链接拒绝、同名保护、空文件、5000 项目录预算、取消、接管与旧租约。Tauri MockRuntime 命令调用真实 sshd 验证目录管理、只读与控制权。Debian 上资源采样另单独执行。前端 4 项输入队列测试、类型检查、构建、Rust 格式与 Clippy 通过。浏览器使用样例数据检查新建目录后刷新读回、跨页保留目录、新终端自动切页；不把模拟传输视为真实上传证据。
+
+独立视觉与 UX 检查各一轮（存量扩展不打分），修正主操作反差、失败识别、监控空图过高，以及文件页创建终端后无可见反馈的问题。真实原生选择对话框、钥匙串和安装卸载人工验收仍待补充。
+
+性能基线见 [测量结果](performance/2026-11-17-loopback.json)，可用 `python3 scripts/benchmark.py --out target/benchmark.json` 复现。macOS arm64 release 客户端到 Debian 回环 VM，交替执行 30 次 `true`，双方都复用认证连接：Vibe-SSH p50 8.183ms / p95 10.171ms，OpenSSH ControlMaster p50 9.107ms / p95 10.646ms；Vibe 状态查询 p50 4.964ms。范围仅为空命令和当前环境，不推导公网或完整 Agent 部署的普遍提速。
+
+[预览发布流程](../.github/workflows/release.yml)按标签在 Apple 芯片和 Intel 两类 macOS runner 上分别验证、构建和打包 DMG/ZIP，附 SHA-256、安装说明和第三方声明。暂用临时签名，不宣称完成 Developer ID、公证或正式发布门槛。
 
 ## 当前仓库
 
@@ -11,6 +30,7 @@
 | [server](../crates/core/src/server.rs) | 当前用户专属的 Unix 套接字，只暴露 Agent 操作 |
 | [ssh](../crates/core/src/ssh.rs) | 固定指纹连接，私钥（可带口令）与密码认证，指纹探测 |
 | [upload](../crates/core/src/upload.rs) | 在调用方进程内打包并按帧发送 |
+| [工作台内核](../crates/core/src/workbench.rs) | SFTP 文件和 Linux 监控，桌面人工入口 |
 | [output](../crates/core/src/output.rs) | 按字节偏移寻址的有界输出，UTF-8 安全 |
 | [skill](../crates/core/src/skill.rs) | 引导式 Skill 与命令的安装，不覆盖无关条目 |
 | [CLI](../crates/cli/src/lib.rs) | `vibe-ssh` 命令行 |
@@ -20,7 +40,7 @@
 | [Linux 测试服务器](../scripts/linux-vm.sh) | 本机 Debian 13 虚拟机的启动脚本；[Linux 端到端测试](../crates/cli/tests/linux.rs) |
 | [示例项目](../examples) | 静态站点与 Compose 应用，配合 [run-guide.py](../scripts/run-guide.py) 复验部署流程 |
 
-## 本机验证证据
+## 工程验证证据（此前切片）
 
 ```sh
 (cd apps/desktop && npm ci && npm test && npm run build)
@@ -37,7 +57,7 @@ Linux 端到端测试另外 1 项，需要先启动虚拟机，默认跳过：
 
 ```sh
 scripts/linux-vm.sh up
-VIBE_SSH_LINUX_VM="$PWD/target/vm" cargo test -p vibe-ssh-cli --test linux
+VIBE_SSH_LINUX_VM="$PWD/target/vm" cargo test -p vibe-ssh-cli --test linux -- --ignored
 ```
 
 它连续运行 4 次通过，结束后虚拟机上没有残留的测试目录和进程。
@@ -60,7 +80,7 @@ VIBE_SSH_LINUX_VM="$PWD/target/vm" cargo test -p vibe-ssh-cli --test linux
 
 本轮发布版应用另在临时数据目录和回环 sshd 下启动，通过该应用自身的 CLI 完成开会话、执行命令、上传与读回文件、关闭会话；界面加载日志无脚本错误。原生窗口自动化在取得画面时被系统 ScreenCaptureKit 拒绝，未通过脚本或其他方式绕过；真实窗口点击、钥匙串和 Cmd+Q 的完整体验仍未据此宣称已验收。本轮不访问用户的真实主机配置、SSH 配置、钥匙串或 Agent Skill 安装目录。
 
-### oil-ui 视觉精修（2026-11-17）
+### 早期 oil-ui 视觉精修（已由黑白版取代）
 
 本轮保留既有的蓝灰色桌面方向，只调整界面：正文与操作文字13–14px、辅助信息12px；提高地址与端口对比度；服务器连接作为列表主操作，已有服务器时“添加服务器”降为次级动作；统一表面、图标底板、选中态与留白。服务器设置对话框的标题与底部操作固定可见。窄等效视口使用顶部紧凑导航，保留工作台、搜索和外观入口。
 
@@ -100,7 +120,7 @@ VIBE_SSH_LINUX_VM="$PWD/target/vm" cargo test -p vibe-ssh-cli --test linux
 | AC-022 界面接管 | 命令层（真实 sshd）：接管前用户输入被拒绝，接管后 Agent 被拒绝而用户输入生效，归还后用户被拒绝。接管按钮在浏览器预览中点过 | 在真实窗口里点击 |
 | AC-023 退出提示 | 窗口关闭与应用菜单/Cmd+Q 已接入确认；后端可查询正在运行的任务数量 | 原生窗口内点击/按键仍未验证 |
 | AC-034 桌面可用性 | 浏览器中已验证搜索、手动重连、外观、字号、模态框、错误恢复；输入队列有 4 项回归测试 | 原生窗口里的完整操作体验 |
-| AC-031 同一命令 | 发布版应用的可执行文件链接为 `vibe-ssh` 后完成 `status`、`hosts`、`space open`、`put`、`run`、`space close`；3 MB 上传内容逐字节一致，被排除的 `.env` 未上传 | 界面里的安装按钮未点过 |
+| AC-031 同一命令 | 发布版应用的可执行文件链接为 `vibe-ssh` 后完成 `status`、`hosts`、`space open`、`put`、`run`、`space close`；3 MB 上传内容逐字节一致，被排除的 `.env` 未上传 | 现已改为启动时自动配置；完整首次安装人工验收待补 |
 
 发布版应用在临时数据目录下启动过：套接字建立，界面加载并调用了内核，Agent 在 Linux 虚拟机上打开空间并运行终端任务后，界面开始读取该任务的输出。真实窗口会把脚本错误、被内容安全策略拦截的资源和终端的实际尺寸报告给应用（`VIBE_SSH_TRACE=1` 时打印）：这次运行报告终端为 114×41、宽 936 像素，没有任何错误或拦截。本次开发环境不允许截屏，所以真实窗口的画面仍然没有被看到过；界面外观的检查来自浏览器预览加示例数据。
 
@@ -135,11 +155,13 @@ npx tauri build
 open ../../target/release/bundle/macos/Vibe-SSH.app
 ```
 
-应用包整体做了临时签名，没有开发者签名和公证，只适合在构建它的这台 Mac 上运行。数据目录是 `~/.vibe-ssh`（可用 `VIBE_SSH_HOME` 改变）：`hosts.json` 保存主机，`agent.sock` 是 Agent 入口。密码和私钥口令在系统钥匙串里，服务名 `io.github.intmainjhy.vibe-ssh`。
+应用包整体做了临时签名，没有开发者签名和公证；可作为预览包分发，其他设备首次打开可能被系统阻止，处理方式见[安装说明](installation.md)。数据目录是 `~/.vibe-ssh`（可用 `VIBE_SSH_HOME` 改变）：`hosts.json` 保存主机，`agent.sock` 是 Agent 入口。密码和私钥口令在系统钥匙串里，服务名 `io.github.intmainjhy.vibe-ssh`。
 
-界面左下角的“让 Agent 可以使用”把 Skill 链接到 `~/.agents/skills` 和 `~/.claude/skills`，并把应用自身链接为 `~/.local/bin/vibe-ssh`。之后 Agent 的用法见 `vibe-ssh skill`，协议见[外部 Agent 协议](03-agent-protocol.md)。
+应用首次启动及升级会自动把 Skill 链接到 `~/.agents/skills` 和 `~/.claude/skills`，并把应用自身链接为 `~/.local/bin/vibe-ssh`。之后 Agent 的用法见 `vibe-ssh skill`，协议见[外部 Agent 协议](03-agent-protocol.md)。
 
-开发界面时 `npm run dev` 可在浏览器里用示例数据预览，示例数据不进入正式构建。不带界面运行内核用 `cargo run -p vibe-ssh-cli -- serve`，它只支持未加密的私钥。
+开发界面时 `npm run dev` 可在浏览器里用示例数据预览，示例数据不进入正式构建。开发时可用 `VIBE_SSH_INTEGRATION_HOME` 把自动接入目标隔离到临时目录，默认仍为当前用户主目录。
+
+不带界面运行内核用 `cargo run -p vibe-ssh-cli -- serve`，它只支持未加密的私钥。
 
 ## 已知限制
 
@@ -149,10 +171,10 @@ open ../../target/release/bundle/macos/Vibe-SSH.app
 - 主机的 Agent 接入开关控制新建会话；已打开的会话需单独接管或关闭。
 - 同一系统用户下的进程都能读到 Agent 空间的当前租约；租约防过期请求，不防其他本机进程。
 - 通过标准输入提交的多行脚本在远端作为一个任务运行，接管不能阻止已在运行的脚本的后续行。
-- 上传依赖远端有 `tar`，没有逐文件的冲突检测；没有下载和文件浏览。
+- CLI 目录上传依赖远端 `tar` 并会覆盖归档内同路径文件；桌面已实现 SFTP 浏览与普通文件上传下载，同名不覆盖。文本编辑冲突检测和目录差异预览尚未实现。
 - 界面里用户的终端只有登录 Shell；Agent 的非终端任务输出按原样显示，不解析进度。
 - 部署流程只在 Debian 13 上验证过；其他发行版的包名和配置路径需要 Agent 先探测再调整。HTTPS 证书、DNS 和云防火墙不在流程内。
-- 没有性能基准，没有提速结论。
+- 已有回环空命令基线；尚无公网与完整 Agent 任务的提速结论。
 - CI 只覆盖 macOS，不运行 Linux 虚拟机测试。
 - 连接断开时，仍在输出的远端任务和 PTY 任务会被服务器终止；需要脱离连接运行的任务目前靠 Agent 按指南用 `nohup setsid` 启动，工具本身没有内置支持。
 - 锁文件含上游引入的预发布加密依赖，正式发布前需要确认。
@@ -161,4 +183,4 @@ open ../../target/release/bundle/macos/Vibe-SSH.app
 
 1. 用户在真实窗口里完成 AC-019 至 AC-023 的人工验收。
 2. AC-033：让 Codex 与 Claude Code 凭已安装的 Skill 在测试服务器上各自独立完成一次部署，根据它们实际卡住的地方修改指南。
-3. 任务记录持久化、托盘常驻、文件浏览与下载、脱离连接运行的任务。
+3. 任务记录持久化、文本编辑冲突检测、目录差异预览、托盘常驻、端口转发、跳板机、脱离连接运行的任务。

@@ -24,6 +24,10 @@ use crate::{
     ssh::{Connection, Host, quote_posix},
 };
 
+#[path = "workbench.rs"]
+mod workbench;
+pub use workbench::{Directory, RemoteEntry, TransferProgress};
+
 /// Bound on one transport submission made while holding a space's control lock.
 const SUBMIT: Duration = Duration::from_secs(3);
 /// How long an upload may wait for its next frame before it counts as cut.
@@ -72,6 +76,9 @@ struct Space {
     actor: String,
     origin: Owner,
     conn: Connection,
+    files: tokio::sync::Mutex<Option<Arc<russh_sftp::client::RawSftpSession>>>,
+    file_operation: tokio::sync::Mutex<()>,
+    monitoring: tokio::sync::Mutex<()>,
     /// The lease check and the transport submission share this one serialization boundary.
     control: tokio::sync::Mutex<ControlState>,
     changed: watch::Sender<u64>,
@@ -300,6 +307,9 @@ impl Service {
                 actor: label(actor),
                 origin,
                 conn,
+                files: tokio::sync::Mutex::new(None),
+                file_operation: tokio::sync::Mutex::new(()),
+                monitoring: tokio::sync::Mutex::new(()),
                 control: tokio::sync::Mutex::new(ControlState {
                     owner: origin,
                     lease: self.lease(id),

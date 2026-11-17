@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-17",
+  "target": "Debian 13 QEMU on loopback",
+  "client": "macOS arm64 release build",
+  "command": "true",
+  "method": "Alternating order; both use authenticated persistent SSH connections. Each timing includes the CLI process and the remote exit status. One warmup each. No application build/deployment measured.",
+  "results": {
+    "vibe_reused": {
+      "samples": 30,
+      "p50_ms": 8.183,
+      "p95_ms": 10.171,
+      "min_ms": 6.35,
+      "max_ms": 10.549
+    },
+    "openssh_reused": {
+      "samples": 30,
+      "p50_ms": 9.107,
+      "p95_ms": 10.646,
+      "min_ms": 7.336,
+      "max_ms": 10.815
+    },
+    "vibe_status": {
+      "samples": 30,
+      "p50_ms": 4.964,
+      "p95_ms": 5.901,
+      "min_ms": 4.14,
+      "max_ms": 6.048
+    }
+  },
+  "limits": "One computer and one loopback VM. No WAN, packet loss or independent Agent workload; no general speedup claim."
+}

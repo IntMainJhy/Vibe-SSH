@@ -34,7 +34,7 @@ Agent 为每个目标打开一个任务空间。空间绑定一台主机，拥�
 
 协议和文档不再假设调用方是 Codex。打开空间时 Agent 报告一个名称，只用于界面显示，不参与授权。
 
-安装到 Agent 目录的 `SKILL.md` 只包含一条指示：先运行 `vibe-ssh skill`。使用说明由 CLI 按已安装版本输出，因此 Skill 不会描述不存在的命令。安装是用户的显式动作，链接到 `~/.agents/skills` 与 `~/.claude/skills`，已存在且不属于本工具的同名条目保持原样。
+安装到 Agent 目录的 `SKILL.md` 只包含一条指示：先运行 `vibe-ssh skill`。使用说明由 CLI 按已安装版本输出，因此 Skill 不会描述不存在的命令。原决定中安装是用户的显式动作（现由 [ADR 0003](0003-desktop-files-and-onboarding.md) 修订为应用启动自动同步），链接到 `~/.agents/skills` 与 `~/.claude/skills`，已存在且不属于本工具的同名条目保持原样。
 
 任何能执行本机命令行的 Agent 都可以使用；不为某个模型供应商内置适配。
 

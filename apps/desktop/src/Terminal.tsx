@@ -56,10 +56,10 @@ export function Terminal({
       disableStdin: true,
       cursorBlink: canWrite.current,
       theme: {
-        background: "#121722",
-        foreground: "#dce2ef",
-        cursor: "#8aa8ff",
-        selectionBackground: "#344464",
+        background: "#111111",
+        foreground: "#e5e5e5",
+        cursor: "#eeeeee",
+        selectionBackground: "#444444",
       },
     });
     const fit = new FitAddon();

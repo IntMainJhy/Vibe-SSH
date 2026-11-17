@@ -36,8 +36,7 @@ fn script(dir: &Path, args: &[&str]) -> String {
 impl Vm {
     async fn start() -> Option<Self> {
         let Some(dir) = std::env::var_os("VIBE_SSH_LINUX_VM").map(PathBuf::from) else {
-            eprintln!("skipped: set VIBE_SSH_LINUX_VM to run against the Linux VM");
-            return None;
+            panic!("set VIBE_SSH_LINUX_VM to run against the Linux VM");
         };
         let hosts: Vec<Host> = serde_json::from_str(&script(&dir, &["hosts"])).unwrap();
         let password = script(&dir, &["password"]).trim().to_owned();
@@ -148,6 +147,7 @@ fn text(value: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires VIBE_SSH_LINUX_VM and the disposable Debian VM"]
 async fn linux_server_exec_pty_upload_interrupt_and_credentials() {
     let Some(vm) = Vm::start().await else { return };
     let (space, lease) = vm.open("vm").await;

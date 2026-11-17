@@ -52,7 +52,7 @@ fn link(target: &Path, link: &Path, ours: Ours) -> std::result::Result<(), Strin
     match std::fs::read_link(link) {
         Ok(existing) if existing == target => Ok(()),
         // Dangling, or one of ours pointing at an older location.
-        Ok(existing) if !link.exists() || ours(&existing) => std::fs::remove_file(link)
+        Ok(existing) if ours(&existing) => std::fs::remove_file(link)
             .map_err(|e| e.to_string())
             .and_then(|()| create()),
         Err(_) if !link.exists() => create(),
@@ -66,16 +66,18 @@ fn our_skill(target: &Path) -> bool {
 
 fn our_cli(target: &Path) -> bool {
     let name = target.file_name().and_then(|name| name.to_str());
-    name.is_some_and(|name| name.starts_with("vibe-ssh"))
+    name == Some("vibe-ssh-desktop")
 }
 
-/// Explicit user action: writes the bootstrap Skill under `home`, links it into the agent
+/// Configures the bundled bootstrap on app startup (or CLI repair), linking it into the agent
 /// skill directories of `user_home`, and optionally links the CLI into `~/.local/bin`.
 pub fn install(home: &Path, user_home: &Path, cli: Option<&Path>) -> Result<Value> {
     let io = |e: std::io::Error| Error::new(ErrorCode::Internal, format!("skill: {e}"));
     let source = home.join("skill/vibe-ssh");
     std::fs::create_dir_all(&source).map_err(io)?;
-    std::fs::write(source.join("SKILL.md"), BOOTSTRAP).map_err(io)?;
+    let temporary = source.join(format!(".skill-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::write(&temporary, BOOTSTRAP).map_err(io)?;
+    std::fs::rename(&temporary, source.join("SKILL.md")).map_err(io)?;
     let mut wanted: Vec<(PathBuf, PathBuf, Ours)> = AGENT_DIRS
         .iter()
         .map(|dir| {
@@ -123,7 +125,7 @@ mod tests {
         let foreign = user.join(".claude/skills/vibe-ssh");
         std::fs::create_dir_all(&foreign).unwrap();
         std::fs::write(foreign.join("SKILL.md"), "someone else's skill").unwrap();
-        let cli = temp.path().join("vibe-ssh-binary");
+        let cli = temp.path().join("vibe-ssh-desktop");
         std::fs::write(&cli, "").unwrap();
 
         let report = install(&home, user, Some(&cli)).unwrap();
@@ -168,6 +170,13 @@ mod tests {
             std::fs::read_link(user.join(".local/bin/vibe-ssh")).unwrap(),
             app
         );
+        // A dangling foreign link is still someone else's entry.
+        std::fs::remove_file(&foreign).unwrap();
+        let dangling = temp.path().join("not-present");
+        symlink(&dangling, &foreign).unwrap();
+        let report = install(&moved, user, Some(&app)).unwrap();
+        assert_eq!(report["skipped"].as_array().unwrap().len(), 1);
+        assert_eq!(std::fs::read_link(&foreign).unwrap(), dangling);
         let (home, cli) = (moved, app);
 
         // Running it again changes nothing and still succeeds for the links that are ours.

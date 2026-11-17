@@ -54,7 +54,7 @@ impl Sshd {
             .port();
         let config = format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nPidFile {}\nAuthorizedKeysFile {}\n\
-             PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nLogLevel ERROR\n",
+             PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nLogLevel ERROR\nSubsystem sftp internal-sftp\n",
             at("host_key").display(),
             at("sshd.pid").display(),
             at("authorized_keys").display(),

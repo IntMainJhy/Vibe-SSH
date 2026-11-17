@@ -123,7 +123,7 @@ export function HostForm({
           </span>
           <div>
             <h2 id="host-title">{initial ? "服务器设置" : "添加服务器"}</h2>
-            <p>保存连接资料，凭据留在这台 Mac。</p>
+            <p>保存连接资料，核对服务器身份后开始使用。</p>
           </div>
           <button
             type="button"

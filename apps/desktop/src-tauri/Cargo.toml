@@ -9,6 +9,8 @@ publish.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+rfd = "0.15"
+tokio.workspace = true
 security-framework = "3"
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

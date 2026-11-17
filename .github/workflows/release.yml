@@ -1,0 +1,76 @@
+name: Release preview
+
+on:
+  push:
+    tags: ['v*-preview.*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Check tag and architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          python3 - <<'PY'
+          import json, os, tomllib
+          version = tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version']
+          assert os.environ['GITHUB_REF_NAME'] == 'v'+version
+          assert json.load(open('apps/desktop/package.json'))['version'] == version
+          assert json.load(open('apps/desktop/src-tauri/tauri.conf.json'))['version'] == version
+          PY
+      - run: npm ci && npm test && npm run build
+        working-directory: apps/desktop
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked --no-fail-fast
+      - run: npx tauri build
+        working-directory: apps/desktop
+      - run: python3 scripts/package-release.py
+      - uses: actions/upload-artifact@v6
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            target/distribution/*.zip
+            target/distribution/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: macos-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish preview with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release-assets
+          sha256sum *.zip *.dmg > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" ./*.zip ./*.dmg SHA256SUMS.txt --verify-tag --prerelease --title "Vibe-SSH $GITHUB_REF_NAME" --notes-file ../docs/releases/0.2.0-preview.1.md

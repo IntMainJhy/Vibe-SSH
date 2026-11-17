@@ -5,7 +5,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Host, Snapshot, Space } from "./api";
 
 const key = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8";
-let installed = false;
+
 let counter = 10;
 const hosts: Host[] = [
   {
@@ -106,6 +106,56 @@ if (scenario === "handoff")
 if (scenario === "disconnected") spaces[spaces.length - 1].connected = false;
 document.documentElement.dataset.preview = "true";
 mockWindows("main");
+const fileEntries = [
+  {
+    name: "app",
+    path: "/home/deploy/app",
+    kind: "directory",
+    size: 4096,
+    modified: 1794901800,
+    permissions: 0o40755,
+  },
+  {
+    name: "releases",
+    path: "/home/deploy/releases",
+    kind: "directory",
+    size: 4096,
+    modified: 1794901800,
+    permissions: 0o40755,
+  },
+  {
+    name: ".profile",
+    path: "/home/deploy/.profile",
+    kind: "file",
+    size: 807,
+    modified: 1794801800,
+    permissions: 0o100644,
+  },
+  {
+    name: "compose.yaml",
+    path: "/home/deploy/compose.yaml",
+    kind: "file",
+    size: 1248,
+    modified: 1794901800,
+    permissions: 0o100644,
+  },
+  {
+    name: "server.log",
+    path: "/home/deploy/server.log",
+    kind: "file",
+    size: 146_928,
+    modified: 1794901800,
+    permissions: 0o100600,
+  },
+  {
+    name: "current",
+    path: "/home/deploy/current",
+    kind: "symlink",
+    size: 16,
+    modified: 1794901800,
+    permissions: 0o120777,
+  },
+];
 mockIPC(
   async (command, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
@@ -115,14 +165,81 @@ mockIPC(
           throw { code: "SERVICE_UNAVAILABLE", message: "preview unavailable" };
         return structuredClone({
           status: {
-            version: "0.1.0",
+            version: "0.2.0-preview.1",
             protocol_version: 2,
             instance: "preview",
           },
           hosts,
           spaces,
-          skill: { skill: installed, cli: installed },
+          skill: { skill: true, cli: true },
         } satisfies Snapshot);
+      case "files": {
+        await sleep(100);
+        const path =
+          args.path === "."
+            ? "/home/deploy"
+            : args.path.replace(/\/$/, "") || "/";
+        if (
+          path !== "/home/deploy" &&
+          !fileEntries.some(
+            (e) => e.path === path && ["directory", "symlink"].includes(e.kind),
+          ) &&
+          path !== "/" &&
+          path !== "/home"
+        )
+          throw { message: "目录或文件不存在，请刷新后重试。" };
+        return {
+          path,
+          entries: fileEntries.filter(
+            (e) => e.path.slice(0, e.path.lastIndexOf("/")) === path,
+          ),
+          truncated: false,
+        };
+      }
+      case "resources":
+        await sleep(150);
+        return {
+          cpu_percent: 12.4,
+          cores: 4,
+          memory_total: 8 * 1024 ** 3,
+          memory_available: 5.2 * 1024 ** 3,
+          swap_total: 2 * 1024 ** 3,
+          swap_free: 2 * 1024 ** 3,
+          disk_total: 80 * 1024 ** 3,
+          disk_used: 26.8 * 1024 ** 3,
+          disk_available: 49.2 * 1024 ** 3,
+          uptime_s: 998284,
+          load: [0.42, 0.38, 0.31],
+        };
+      case "file_action": {
+        if (
+          spaces.find((s) => s.space === args.space)?.control.owner !== "human"
+        )
+          throw { code: "CONTROL_REVOKED" };
+        const exists = fileEntries.find((e) => e.path === args.path);
+        if (args.action === "mkdir") {
+          if (exists) throw { message: "已有同名文件夹" };
+          fileEntries.push({
+            name: args.path.split("/").at(-1),
+            path: args.path,
+            kind: "directory",
+            size: 4096,
+            modified: Date.now() / 1000,
+            permissions: 0o40755,
+          });
+        } else if (args.action === "rename" && exists) {
+          exists.path = args.destination;
+          exists.name = args.destination.split("/").at(-1);
+        } else if (args.action === "delete" && exists) {
+          fileEntries.splice(fileEntries.indexOf(exists), 1);
+        }
+        return;
+      }
+      case "upload_files":
+      case "download_file":
+        return false;
+      case "cancel_transfer":
+        return;
       case "host_key":
         await sleep(400);
         return ["ssh-ed25519", key];
@@ -143,10 +260,6 @@ mockIPC(
           1,
         );
         break;
-      case "install_skill":
-        installed = true;
-        await emit("changed");
-        return { linked: ["preview"], skipped: [] };
       case "open_terminal": {
         await sleep(250);
         if (scenario === "connect-error") throw { code: "CONNECTION_FAILED" };

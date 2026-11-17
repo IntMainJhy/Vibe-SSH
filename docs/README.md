@@ -1,8 +1,8 @@
 # Vibe-SSH 方案总览
 
-日期：2026-11-17。版本：设计基线 0.2。阶段：M1 Agent 闭环已在 Linux 上验证，M2 桌面应用已实现、待人工验收，M4 的两个部署流程已在 Linux 上跑通。
+日期：2026-11-17。版本：0.2.0-preview.1。阶段：M1 Agent 闭环已在 Linux 上验证，M2 桌面应用已实现、待人工验收，M4 的两个部署流程已在 Linux 上跑通。
 
-本方案将 Vibe-SSH 定义为可由外部 Agent 高效操作的桌面 SSH 客户端。服务器由用户手动添加，操作在本机内核中统一执行，客户端提供真实输出和可执行的接管动作。
+本方案将 Vibe-SSH 定义为可由外部 Agent 高效操作的桌面 SSH 客户端。服务器由用户手动添加，操作在客户端内核中统一执行，客户端提供真实输出和可执行的接管动作。
 
 “企业级项目”的要求落实为明确的模块边界、版本化契约、可追溯决策、故障语义、测试证据和发布门槛。企业多租户、集中管控和高可用服务器不属于首版范围。
 
@@ -17,12 +17,14 @@
 | [交付与验收](05-delivery-and-acceptance.md) | 如何分阶段开发并证明可用 |
 | [开发与实现状态](06-development-and-status.md) | 当前代码能做什么，如何复现验证 |
 | [架构决策 0001](adr/0001-runtime-and-reuse.md) | 为什么选 Rust/Tauri，如何复用开源组件 |
+| [安装说明](installation.md) | 分发包、自动接入、签名与卸载边界 |
+| [架构决策 0003](adr/0003-desktop-files-and-onboarding.md) | 完整 SSH 工作台、自动 Skill 配置、SFTP 与监控 |
 | [架构决策 0002](adr/0002-task-spaces-and-agent-neutrality.md) | 任务空间、每空间一条连接、Agent 中立、里程碑调整 |
 
 ## 已确定的决定
 
 1. 用户像使用 FinalShell 一样手动填写服务器资料。
-2. Vibe-SSH 是日常 SSH 客户端，外部 Agent 通过 Skill 与 CLI 操作；不提供多 Agent 调度或管理界面。
+2. Vibe-SSH 是日常 SSH 客户端，外部 Agent 通过 Skill 与 CLI 操作，包含日常终端、文件和资源监控；不提供多 Agent 调度或管理界面。
 3. Rust 内核统一管理 SSH 连接、任务、输出和控制权。
 4. UI 使用 Tauri 2、React/TypeScript 和 xterm.js。
 5. 优先复用协议库与终端组件，不整体 fork 一个完整 SSH 客户端。

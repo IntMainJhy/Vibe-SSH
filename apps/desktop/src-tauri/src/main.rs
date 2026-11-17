@@ -9,6 +9,7 @@ use security_framework::passwords::{
 use serde_json::{Value, json};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, State};
+mod workbench;
 use vibe_ssh_core::{By, Chunk, Error, ErrorCode, Host, Service, default_home, serve, skill};
 use vibe_ssh_protocol::{ErrorBody, Owner, SpaceView};
 
@@ -37,13 +38,24 @@ fn user_home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
+// Allows isolated integration validation without touching the real Agent directories.
+fn integration_home() -> PathBuf {
+    std::env::var_os("VIBE_SSH_INTEGRATION_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(user_home)
+}
+
 #[tauri::command]
-async fn snapshot(kernel: Kernel<'_>) -> Reply<Value> {
+async fn snapshot(
+    kernel: Kernel<'_>,
+    integration: State<'_, workbench::Integration>,
+) -> Reply<Value> {
     Ok(json!({
         "status": kernel.status(),
         "hosts": kernel.load_hosts().map_err(fail)?,
         "spaces": kernel.spaces(false).await,
-        "skill": skill::installed(kernel.home(), &user_home()),
+        "skill": skill::installed(kernel.home(), &integration_home()),
+        "integration": integration.0.lock().unwrap().clone(),
     }))
 }
 
@@ -194,13 +206,6 @@ async fn job_interrupt(kernel: Kernel<'_>, space: String, job: String) -> Reply<
         .map_err(fail)
 }
 
-/// Explicit user action: links the Skill for agents and this binary as the `vibe-ssh` command.
-#[tauri::command]
-async fn install_skill(kernel: Kernel<'_>) -> Reply<Value> {
-    let cli = std::env::current_exe().ok();
-    skill::install(kernel.home(), &user_home(), cli.as_deref()).map_err(fail)
-}
-
 /// Only called after the user confirms exit. Never exposed on the agent socket.
 #[tauri::command]
 fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
@@ -267,19 +272,28 @@ fn commands<R: tauri::Runtime>(
             job_input,
             job_resize,
             job_interrupt,
-            install_skill,
+            workbench::files,
+            workbench::resources,
+            workbench::file_action,
+            workbench::upload_files,
+            workbench::download_file,
+            workbench::cancel_transfer,
             exit_app,
             copy_text,
             ui_report
         ]);
     // VIBE_SSH_TRACE=1 logs which commands the interface calls, for diagnosing a blank window.
     let trace = std::env::var_os("VIBE_SSH_TRACE").is_some();
-    builder.manage(service).invoke_handler(move |invoke| {
-        if trace {
-            eprintln!("invoke {}", invoke.message.command());
-        }
-        handler(invoke)
-    })
+    builder
+        .manage(service)
+        .manage(workbench::Transfers::default())
+        .manage(workbench::Integration::default())
+        .invoke_handler(move |invoke| {
+            if trace {
+                eprintln!("invoke {}", invoke.message.command());
+            }
+            handler(invoke)
+        })
 }
 
 fn main() -> ExitCode {
@@ -332,7 +346,10 @@ fn main() -> ExitCode {
         })
         .on_menu_event(move |app, event| {
             if event.id().as_ref() == "quit-confirm" {
-                if menu_service.running_jobs() > 0 {
+                if menu_service.running_jobs() > 0 || {
+                    use tauri::Manager;
+                    app.state::<workbench::Transfers>().active() > 0
+                } {
                     let _ = app.emit("quit-requested", ());
                 } else {
                     app.exit(0);
@@ -341,6 +358,7 @@ fn main() -> ExitCode {
         })
         .setup(move |app| {
             tauri::async_runtime::block_on(serve(service.clone()))?;
+            workbench::configure(app, &service);
             let (app, mut events) = (app.handle().clone(), service.subscribe());
             tauri::async_runtime::spawn(async move {
                 while events.changed().await.is_ok() {
@@ -357,7 +375,10 @@ fn main() -> ExitCode {
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
-                && quitting.running_jobs() > 0
+                && (quitting.running_jobs() > 0 || {
+                    use tauri::Manager;
+                    app.state::<workbench::Transfers>().active() > 0
+                })
             {
                 api.prevent_exit();
                 let _ = app.emit("quit-requested", ());
@@ -505,6 +526,33 @@ mod tests {
                 .unwrap()
                 .is_string()
         );
+        // The same frontend bridge really browses and mutates the temporary SFTP directory.
+        let directory = sshd.path("browser-files");
+        std::fs::create_dir(&directory).unwrap();
+        let folder = directory.join("中文 folder");
+        invoke(
+            &webview,
+            "file_action",
+            json!({"space":mine,"action":"mkdir","path":folder,"destination":null}),
+        )
+        .unwrap();
+        let listed = invoke(&webview, "files", json!({"space":mine,"path":directory})).unwrap();
+        assert_eq!(listed["entries"][0]["name"], "中文 folder");
+        assert_eq!(listed["entries"][0]["kind"], "directory");
+        invoke(
+            &webview,
+            "file_action",
+            json!({"space":mine,"action":"delete","path":folder,"destination":null}),
+        )
+        .unwrap();
+        let refused = invoke(
+            &webview,
+            "file_action",
+            json!({"space":space,"action":"mkdir","path":folder,"destination":null}),
+        )
+        .unwrap_err();
+        assert_eq!(refused["code"], "CONTROL_REVOKED");
+        assert!(invoke(&webview, "resources", json!({"space":mine})).is_err());
         invoke(&webview, "close_space", json!({"space": mine})).unwrap();
         invoke(&webview, "close_space", json!({"space": space})).unwrap();
         assert_eq!(

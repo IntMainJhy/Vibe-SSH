@@ -39,6 +39,10 @@ export type Snapshot = {
   hosts: Host[];
   spaces: Space[];
   skill: { skill: boolean; cli: boolean };
+  integration?: {
+    error?: string;
+    skipped?: { path: string; reason: string }[];
+  };
 };
 
 export type Chunk = {
@@ -66,7 +70,7 @@ const EXPLAIN: Record<string, string> = {
   CONNECTION_FAILED: "连不上服务器。请检查地址、端口和网络。",
   CONTROL_REVOKED: "这个空间现在由 Agent 操作，接管后才能输入。",
   DELIVERY_UNKNOWN: "输入可能只发送了一部分，请先检查终端状态，不要重复发送。",
-  SERVICE_UNAVAILABLE: "本地服务暂时不可用，请重新打开 Vibe-SSH。",
+  SERVICE_UNAVAILABLE: "应用服务暂时不可用，请重新打开 Vibe-SSH。",
   RESOURCE_LIMIT: "打开的空间或任务太多了，先关闭一些再试。",
 };
 

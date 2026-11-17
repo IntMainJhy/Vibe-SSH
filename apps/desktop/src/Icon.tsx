@@ -1,6 +1,18 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  folder: <path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3z" />,
+  file: (
+    <>
+      <path d="M5 3h9l5 5v13H5zM14 3v6h5M8 13h8M8 17h6" />
+    </>
+  ),
+  upload: <path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6" />,
+  download: <path d="M12 3v13m-5-5 5 5 5-5M4 15v6h16v-6" />,
+  edit: <path d="m15 4 5 5-11 11H4v-5zM13 6l5 5" />,
+  trash: <path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7" />,
+  home: <path d="m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10" />,
+  activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
   terminal: (
     <>
       <path d="m5 6 5 6-5 6M13 18h6" />

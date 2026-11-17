@@ -15,6 +15,9 @@ import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 import { useWorkspace } from "./useWorkspace";
+import { Files } from "./Files";
+import { Resources } from "./Resources";
+import { TransferTray, useTransfers, type TransferStart } from "./Transfers";
 
 const Terminal = lazy(() =>
   import("./Terminal").then((module) => ({ default: module.Terminal })),
@@ -27,13 +30,18 @@ const STATUS: Record<Job["status"], string> = {
 };
 const failedJobs = (space: Space) =>
   space.jobs.filter((job) => job.status === "failed").length;
+type Page = "terminal" | "files" | "resources";
 type Notice = { text: string; kind: "error" | "success" };
 type Act = (key: string, work: () => Promise<unknown>) => Promise<void>;
 
 export function App() {
   const { data, error, refreshing, refresh } = useWorkspace();
   const preferences = usePreferences();
+  const transfers = useTransfers();
   const [selected, select] = useState<string | null>(null);
+  const [views, setViews] = useState<
+    Record<string, { page: Page; path: string }>
+  >({});
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -46,7 +54,7 @@ export function App() {
     data?.spaces.flatMap((s) => s.jobs).filter((j) => j.status === "running")
       .length ?? 0;
   const runningRef = useRef(running);
-  runningRef.current = running;
+  runningRef.current = running + transfers.active;
   const notify = useCallback(
     (text: string) => setNotice({ text, kind: "error" }),
     [],
@@ -125,20 +133,17 @@ export function App() {
       });
       select(opened.space);
     });
-  const install = () =>
-    act("install", async () => {
-      const report = await call<{ skipped: { path: string }[] }>(
-        "install_skill",
-      );
-      if (report.skipped.length)
-        notify(
-          `以下位置已有同名内容，已保留：${report.skipped.map((s) => s.path).join("、")}`,
-        );
-      else setNotice({ text: "Skill 和 vibe-ssh 命令已安装", kind: "success" });
-    });
 
+  const agents =
+    data?.spaces.filter(
+      (s) =>
+        s.origin === "agent" &&
+        s.connected &&
+        s.control.owner === "agent" &&
+        s.jobs.some((j) => j.status === "running"),
+    ) ?? [];
   return (
-    <div className="app">
+    <div className="app" data-agent-active={agents.length > 0}>
       <aside className="sidebar">
         <div className="traffic-space" data-tauri-drag-region />
         <div className="brand">
@@ -148,7 +153,9 @@ export function App() {
           <strong>
             Vibe<span>SSH</span>
           </strong>
-          <span className="version">{data?.status.version ?? "0.1.0"}</span>
+          <span className="version" title={data?.status.version}>
+            {data?.status.version.split("-")[0] ?? "0.2.0"}
+          </span>
         </div>
         <label className="search">
           <Icon name="search" size={16} />
@@ -250,7 +257,9 @@ export function App() {
                       : s.control.note
                         ? "等待你处理"
                         : s.origin === "agent"
-                          ? "Agent 操作"
+                          ? s.control.owner === "human"
+                            ? "你已接管"
+                            : "Agent 操作"
                           : "我的终端"}
                     {failedJobs(s) > 0 && (
                       <span className="failure-note">
@@ -280,34 +289,21 @@ export function App() {
           </Section>
         </nav>
         <footer className="sidebar-footer">
-          <div className="integration">
-            <span
-              className={`integration-icon ${data?.skill.skill && data.skill.cli ? "ready" : ""}`}
+          {data?.integration &&
+          (data.integration.error || data.integration.skipped?.length) ? (
+            <p
+              className="integration-warning"
+              role="status"
+              title={
+                data.integration.error ||
+                data.integration.skipped
+                  ?.map((s) => `${s.path}: ${s.reason}`)
+                  .join("\n")
+              }
             >
-              <Icon name="link" size={18} />
-            </span>
-            <div>
-              <strong>Agent 接入</strong>
-              <small>
-                {data?.skill.skill && data.skill.cli
-                  ? "Skill 与命令已就绪"
-                  : "通过 Skill 使用 SSH"}
-              </small>
-            </div>
-            <button
-              className="text-button"
-              disabled={pending.includes("install")}
-              onClick={() => void install()}
-              title="安装或更新 Agent 的 Skill 与命令"
-            >
-              <span className="compact-agent-label">Agent</span>
-              {pending.includes("install")
-                ? "安装中"
-                : data?.skill.skill && data.skill.cli
-                  ? "更新"
-                  : "启用"}
-            </button>
-          </div>
+              接入配置需要处理：已有同名内容或目录不可写。请检查配置目录。
+            </p>
+          ) : null}
           <label className="appearance">
             <Icon
               name={preferences.theme === "dark" ? "moon" : "sun"}
@@ -329,7 +325,7 @@ export function App() {
                 className="dot"
                 data-status={error ? "unknown" : data ? "succeeded" : "running"}
               />
-              {error ? "服务异常" : data ? "本地运行" : "连接中"}
+              {error ? "服务异常" : data ? "已就绪" : "连接中"}
             </span>
           </label>
         </footer>
@@ -348,7 +344,7 @@ export function App() {
           </div>
           <div className="window-meta">
             <span className="dot" data-status="succeeded" />
-            本机 SSH 客户端
+            SSH 工作空间
             <button
               className="icon-button"
               aria-label="刷新状态"
@@ -369,7 +365,7 @@ export function App() {
         {!data ? (
           <div className="loading">
             <Icon name="terminal" size={32} />
-            <p>{error ? "无法加载工作台" : "正在连接本地服务…"}</p>
+            <p>{error ? "无法加载工作台" : "正在加载工作空间…"}</p>
             <button onClick={() => void refresh()}>重新加载</button>
           </div>
         ) : space ? (
@@ -391,6 +387,25 @@ export function App() {
             onError={notify}
             copy={copy}
             onReconnect={openTerminal}
+            page={views[space.space]?.page ?? "terminal"}
+            onPage={(page) =>
+              setViews((old) => ({
+                ...old,
+                [space.space]: { path: old[space.space]?.path ?? ".", page },
+              }))
+            }
+            filePath={views[space.space]?.path ?? "."}
+            onDirectory={(path) =>
+              setViews((old) => ({
+                ...old,
+                [space.space]: {
+                  page: old[space.space]?.page ?? "files",
+                  path,
+                },
+              }))
+            }
+            transfer={transfers.transfer}
+            transferRevision={transfers.revision}
           />
         ) : (
           <Workbench
@@ -404,6 +419,22 @@ export function App() {
           />
         )}
       </main>
+      {agents.length > 0 && (
+        <button
+          className="agent-activity"
+          aria-label={`${agents[0].actor} 正在操作 ${agents[0].name}，点击查看空间`}
+          onClick={() => select(agents[0].space)}
+          title={agents.map((s) => `${s.actor} · ${s.name}`).join("\n")}
+        >
+          <span className="activity-orb" />
+          <span>
+            {agents[0].actor} 正在操作 · {agents[0].name}
+            {agents.length > 1 ? ` +${agents.length - 1}` : ""}
+          </span>
+          <Icon name="arrow" size={14} />
+        </button>
+      )}
+      <TransferTray state={transfers} />
       {editing && (
         <HostForm
           initial={editing === "new" ? undefined : editing}
@@ -420,7 +451,8 @@ export function App() {
           </span>
           <h2 id="quit-title">退出 Vibe-SSH？</h2>
           <p>
-            还有 {running} 个任务在运行。退出会断开所有连接，Agent
+            还有 {running + transfers.active}{" "}
+            个任务或传输在运行。退出会断开所有连接，Agent
             也无法继续操作。远端程序是否停止需要另行确认。
           </p>
           <div className="actions">
@@ -506,7 +538,7 @@ function Workbench({
       <header className="page-heading">
         <div>
           <h1>服务器工作台</h1>
-          <p>连接服务器，继续手头的工作。</p>
+          <p>终端、文件与资源监控。</p>
         </div>
         <button
           className={data.hosts.length ? "add-server" : "primary"}
@@ -693,7 +725,7 @@ function Workbench({
       </section>
       <p className="workspace-footnote">
         <Icon name="shield" size={13} />
-        连接由本机管理，凭据保存在这台 Mac。
+        终端、文件与服务器状态，在同一个工作空间。
       </p>
     </div>
   );
@@ -711,6 +743,12 @@ function Session({
   onError,
   copy,
   onReconnect,
+  page,
+  onPage,
+  filePath,
+  onDirectory,
+  transfer,
+  transferRevision,
 }: {
   space: Space;
   host?: Host;
@@ -723,6 +761,12 @@ function Session({
   onError: (e: string) => void;
   copy: (text: string) => Promise<void>;
   onReconnect: (h: Host) => Promise<void>;
+  page: Page;
+  onPage: (page: Page) => void;
+  filePath: string;
+  onDirectory: (path: string) => void;
+  transfer: TransferStart;
+  transferRevision: number;
 }) {
   const [closing, setClosing] = useState(false);
   const [clear, setClear] = useState(0);
@@ -769,9 +813,10 @@ function Session({
             <button
               disabled={busy}
               onClick={() =>
-                void act(`space:${id}`, async () =>
-                  onPick(await call<string>("shell", { space: id })),
-                )
+                void act(`space:${id}`, async () => {
+                  onPick(await call<string>("shell", { space: id }));
+                  onPage("terminal");
+                })
               }
             >
               <Icon name="plus" size={16} />
@@ -812,173 +857,219 @@ function Session({
           )}
         </div>
       )}
-      <div className="terminal-shell">
-        <div className="terminal-tabs" role="tablist" aria-label="会话中的任务">
-          {space.jobs.map((j) => (
-            <button
-              key={j.job}
-              role="tab"
-              id={`tab-${j.job}`}
-              aria-controls="terminal-panel"
-              aria-selected={j.job === job?.job}
-              tabIndex={j.job === job?.job ? 0 : -1}
-              title={j.command ?? "交互终端"}
-              onClick={() => onPick(j.job)}
-              onKeyDown={(e) => {
-                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
-                  return;
-                e.preventDefault();
-                const at = space.jobs.indexOf(j);
-                const index =
-                  e.key === "Home"
-                    ? 0
-                    : e.key === "End"
-                      ? space.jobs.length - 1
-                      : (at +
-                          (e.key === "ArrowLeft" ? -1 : 1) +
-                          space.jobs.length) %
-                        space.jobs.length;
-                onPick(space.jobs[index].job);
-                document
-                  .getElementById(`tab-${space.jobs[index].job}`)
-                  ?.focus();
-              }}
-            >
-              <span className="dot" data-status={j.status} />
-              <span>
-                {j.command ? j.command.split("\n")[0].slice(0, 42) : "交互终端"}
-              </span>
-              <span className="tab-kind" data-status={j.status}>
-                {STATUS[j.status]}
-              </span>
-            </button>
-          ))}
-          <span className="tab-spacer" />
-          <span className="terminal-mode">
-            {writable
-              ? "可输入"
-              : job?.status === "unknown"
-                ? "结果未知 · 只读"
-                : job && job.status !== "running"
-                  ? "已结束 · 只读"
-                  : "只读"}
-          </span>
-        </div>
-        {job ? (
-          <>
-            <div className="terminal-tools">
-              <span>
-                <Icon name="terminal" size={14} />
-                {job.pty ? "交互终端" : "命令输出"}
-              </span>
-              <div>
-                <button
-                  aria-label="缩小终端字号"
-                  disabled={fontSize <= 11}
-                  onClick={() => setFontSize(fontSize - 1)}
-                >
-                  A−
-                </button>
-                <span>{fontSize}px</span>
-                <button
-                  aria-label="放大终端字号"
-                  disabled={fontSize >= 20}
-                  onClick={() => setFontSize(fontSize + 1)}
-                >
-                  A+
-                </button>
-                <i />
-                <button onClick={() => setClear((n) => n + 1)}>清空显示</button>
-                {job.command && (
-                  <button
-                    title="复制完整命令"
-                    onClick={() => void copy(job.command!)}
-                  >
-                    <Icon name="copy" size={14} />
-                    复制命令
-                  </button>
-                )}
-              </div>
-            </div>
-            <div
-              id="terminal-panel"
-              className="terminal-panel"
-              role="tabpanel"
-              aria-labelledby={`tab-${job.job}`}
-            >
-              <Suspense
-                fallback={<p className="terminal-loading">正在加载终端…</p>}
-              >
-                <Terminal
-                  key={job.job}
-                  space={id}
-                  job={job.job}
-                  pty={job.pty}
-                  writable={Boolean(writable)}
-                  fontSize={fontSize}
-                  clear={clear}
-                  onError={onError}
-                />
-              </Suspense>
-            </div>
-            <footer className="statusbar">
-              <span>
-                <span className="dot" data-status={job.status} />
-                {STATUS[job.status]}
-                {job.exit_code !== null && (
-                  <span className="exit-code">退出码 {job.exit_code}</span>
-                )}
-              </span>
-              <span>
-                {!space.connected
-                  ? "已断开连接"
-                  : job.status === "unknown"
-                    ? held
-                      ? "远端结果未知；点击“新终端”核实"
-                      : "远端结果未知；接管后可新开终端核实"
-                    : job.status !== "running"
-                      ? held
-                        ? "任务已结束；点击上方“新终端”继续操作"
-                        : "任务输出只读；接管后可新开终端"
-                      : !held
-                        ? "只读观察 · 接管后可输入"
-                        : "输入将发送到服务器"}
-                {held && job.status === "running" && space.connected && (
-                  <button
-                    className="interrupt"
-                    disabled={busy}
-                    onClick={() =>
-                      void act(`space:${id}`, () =>
-                        call("job_interrupt", { space: id, job: job.job }),
-                      )
-                    }
-                  >
-                    <Icon name="stop" size={12} />
-                    中断
-                  </button>
-                )}
-              </span>
-            </footer>
-          </>
-        ) : (
-          <div className="terminal-empty">
-            <Icon name="terminal" size={35} />
-            <p>会话已连接，等待运行命令。</p>
-            {held && (
+      <nav className="session-pages" aria-label="空间页面">
+        <button
+          aria-current={page === "terminal" ? "page" : undefined}
+          onClick={() => onPage("terminal")}
+        >
+          <Icon name="terminal" size={16} />
+          终端
+        </button>
+        <button
+          aria-current={page === "files" ? "page" : undefined}
+          onClick={() => onPage("files")}
+        >
+          <Icon name="folder" size={16} />
+          文件
+        </button>
+        <button
+          aria-current={page === "resources" ? "page" : undefined}
+          onClick={() => onPage("resources")}
+        >
+          <Icon name="activity" size={16} />
+          监控
+        </button>
+      </nav>
+      {page === "files" ? (
+        <Files
+          space={id}
+          writable={held && space.connected}
+          transfer={transfer}
+          revision={transferRevision}
+          initialPath={filePath}
+          onDirectory={onDirectory}
+        />
+      ) : page === "resources" ? (
+        <Resources space={id} />
+      ) : (
+        <div className="terminal-shell">
+          <div
+            className="terminal-tabs"
+            role="tablist"
+            aria-label="会话中的任务"
+          >
+            {space.jobs.map((j) => (
               <button
-                disabled={busy}
-                onClick={() =>
-                  void act(`space:${id}`, async () =>
-                    onPick(await call<string>("shell", { space: id })),
+                key={j.job}
+                role="tab"
+                id={`tab-${j.job}`}
+                aria-controls="terminal-panel"
+                aria-selected={j.job === job?.job}
+                tabIndex={j.job === job?.job ? 0 : -1}
+                title={j.command ?? "交互终端"}
+                onClick={() => onPick(j.job)}
+                onKeyDown={(e) => {
+                  if (
+                    !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
                   )
-                }
+                    return;
+                  e.preventDefault();
+                  const at = space.jobs.indexOf(j);
+                  const index =
+                    e.key === "Home"
+                      ? 0
+                      : e.key === "End"
+                        ? space.jobs.length - 1
+                        : (at +
+                            (e.key === "ArrowLeft" ? -1 : 1) +
+                            space.jobs.length) %
+                          space.jobs.length;
+                  onPick(space.jobs[index].job);
+                  document
+                    .getElementById(`tab-${space.jobs[index].job}`)
+                    ?.focus();
+                }}
               >
-                打开终端
+                <span className="dot" data-status={j.status} />
+                <span>
+                  {j.command
+                    ? j.command.split("\n")[0].slice(0, 42)
+                    : "交互终端"}
+                </span>
+                <span className="tab-kind" data-status={j.status}>
+                  {STATUS[j.status]}
+                </span>
               </button>
-            )}
+            ))}
+            <span className="tab-spacer" />
+            <span className="terminal-mode">
+              {writable
+                ? "可输入"
+                : job?.status === "unknown"
+                  ? "结果未知 · 只读"
+                  : job && job.status !== "running"
+                    ? "已结束 · 只读"
+                    : "只读"}
+            </span>
           </div>
-        )}
-      </div>
+          {job ? (
+            <>
+              <div className="terminal-tools">
+                <span>
+                  <Icon name="terminal" size={14} />
+                  {job.pty ? "交互终端" : "命令输出"}
+                </span>
+                <div>
+                  <button
+                    aria-label="缩小终端字号"
+                    disabled={fontSize <= 11}
+                    onClick={() => setFontSize(fontSize - 1)}
+                  >
+                    A−
+                  </button>
+                  <span>{fontSize}px</span>
+                  <button
+                    aria-label="放大终端字号"
+                    disabled={fontSize >= 20}
+                    onClick={() => setFontSize(fontSize + 1)}
+                  >
+                    A+
+                  </button>
+                  <i />
+                  <button onClick={() => setClear((n) => n + 1)}>
+                    清空显示
+                  </button>
+                  {job.command && (
+                    <button
+                      title="复制完整命令"
+                      onClick={() => void copy(job.command!)}
+                    >
+                      <Icon name="copy" size={14} />
+                      复制命令
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div
+                id="terminal-panel"
+                className="terminal-panel"
+                role="tabpanel"
+                aria-labelledby={`tab-${job.job}`}
+              >
+                <Suspense
+                  fallback={<p className="terminal-loading">正在加载终端…</p>}
+                >
+                  <Terminal
+                    key={job.job}
+                    space={id}
+                    job={job.job}
+                    pty={job.pty}
+                    writable={Boolean(writable)}
+                    fontSize={fontSize}
+                    clear={clear}
+                    onError={onError}
+                  />
+                </Suspense>
+              </div>
+              <footer className="statusbar">
+                <span>
+                  <span className="dot" data-status={job.status} />
+                  {STATUS[job.status]}
+                  {job.exit_code !== null && (
+                    <span className="exit-code">退出码 {job.exit_code}</span>
+                  )}
+                </span>
+                <span>
+                  {!space.connected
+                    ? "已断开连接"
+                    : job.status === "unknown"
+                      ? held
+                        ? "远端结果未知；点击“新终端”核实"
+                        : "远端结果未知；接管后可新开终端核实"
+                      : job.status !== "running"
+                        ? held
+                          ? "任务已结束；点击上方“新终端”继续操作"
+                          : "任务输出只读；接管后可新开终端"
+                        : !held
+                          ? "只读观察 · 接管后可输入"
+                          : "输入将发送到服务器"}
+                  {held && job.status === "running" && space.connected && (
+                    <button
+                      className="interrupt"
+                      disabled={busy}
+                      onClick={() =>
+                        void act(`space:${id}`, () =>
+                          call("job_interrupt", { space: id, job: job.job }),
+                        )
+                      }
+                    >
+                      <Icon name="stop" size={12} />
+                      中断
+                    </button>
+                  )}
+                </span>
+              </footer>
+            </>
+          ) : (
+            <div className="terminal-empty">
+              <Icon name="terminal" size={35} />
+              <p>会话已连接，等待运行命令。</p>
+              {held && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void act(`space:${id}`, async () =>
+                      onPick(await call<string>("shell", { space: id })),
+                    )
+                  }
+                >
+                  打开终端
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {closing && (
         <Modal
           titleId="close-title"
