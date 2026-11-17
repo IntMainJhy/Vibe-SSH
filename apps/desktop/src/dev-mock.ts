@@ -157,11 +157,34 @@ const fileEntries = [
   },
 ];
 const fileTexts: Record<string, string> = {
+  "/home/deploy/app/config/nginx.conf": "server {\n    listen 80;\n    server_name example.test;\n}\n",
+  "/home/deploy/app/package.json": '{"name":"blog","scripts":{"build":"vite build"}}\n',
+  "/home/deploy/app/README.md": "# Blog\n\nBuild with npm run build.\n",
+  "/home/deploy/app/src/index.ts": 'console.log("ready");\n',
   "/home/deploy/compose.yaml":
     'services:\n  web:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n    restart: unless-stopped\n',
   "/home/deploy/server.log": "2026-11-17T12:00:00Z server ready\n",
   "/home/deploy/.profile": 'export PATH="$HOME/.local/bin:$PATH"\n',
 };
+for (const [path, kind] of [
+  ["/home", "directory"],
+  ["/home/deploy", "directory"],
+  ["/home/deploy/app/config", "directory"],
+  ["/home/deploy/app/src", "directory"],
+  ["/home/deploy/releases/2026-11-17", "directory"],
+  ["/home/deploy/app/config/nginx.conf", "file"],
+  ["/home/deploy/app/package.json", "file"],
+  ["/home/deploy/app/README.md", "file"],
+  ["/home/deploy/app/src/index.ts", "file"],
+  ["/home/deploy/app/.env", "file"],
+] as const) {
+  fileEntries.push({
+    path, kind, name: path.split("/").at(-1)!,
+    size: kind === "directory" ? 4096 : new TextEncoder().encode(fileTexts[path] ?? "").length,
+    modified: 1794901800,
+    permissions: kind === "directory" ? 0o40755 : 0o100644,
+  });
+}
 const documents = new Map<
   string,
   { path: string; text: string; revision: string; save_supported: boolean }
@@ -294,11 +317,14 @@ mockIPC(
           skill: { skill: true, cli: true },
         } satisfies Snapshot);
       case "files": {
-        await sleep(100);
-        const path =
+        await sleep(scenario === "files-race" && args.path === "/home/deploy/app" ? 650 : 100);
+        let path =
           args.path === "."
             ? "/home/deploy"
             : args.path.replace(/\/$/, "") || "/";
+        if (scenario === "files-denied" && path === "/home/deploy/app/config")
+          throw { message: "没有读取这个目录的权限。" };
+        if (path === "/home/deploy/current") path = "/home/deploy/app";
         if (
           path !== "/home/deploy" &&
           !fileEntries.some(
