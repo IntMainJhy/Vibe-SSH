@@ -1,23 +1,40 @@
 ![Vibe-SSH — SSH for you and your AI. Watch agent operations and take over.](docs/assets/vibe-ssh-hero.png)
 
-# Vibe-SSH
+<h1 align="center">Vibe-SSH</h1>
 
-**A desktop SSH client for people and external AI agents.**
+<h3 align="center">The SSH workspace for you and your AI.</h3>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Preview release](https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview)](https://github.com/IntMainJhy/Vibe-SSH/releases)
-[![Verify](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-111111.svg)](docs/installation.en.md)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563eb?style=flat-square" alt="MIT License" width="115" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&amp;label=preview&amp;style=flat-square&amp;color=2563eb" alt="Latest preview release" width="221" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/IntMainJhy/Vibe-SSH/rust.yml?branch=main&amp;label=verify&amp;style=flat-square" alt="Verify workflow status" width="129" height="28" /></a>
+  <a href="docs/installation.en.md"><img src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square" alt="macOS desktop" width="148" height="28" /></a>
+</p>
 
-English · [简体中文](README.zh-CN.md)
+<p align="center">
+  An open-source macOS SSH/SFTP client for <strong>Codex, Claude Code and other external AI agents</strong>.<br />
+  Add your servers manually. Deploy and troubleshoot through Skills.<br />
+  <strong>Watch commands and output in real time. Take over whenever you need.</strong>
+</p>
 
-[GitHub](https://github.com/IntMainJhy/Vibe-SSH) · [AtomGit mirror](https://gitcode.com/InMainJhy/Vibe-SSH)
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases">Download the macOS preview</a></h3>
 
-Vibe-SSH is an open-source macOS SSH/SFTP client that gives **Codex, Claude Code and other command-line AI agents** a Skill-based interface to your servers. Add your own servers manually, let an agent run deployment or troubleshooting tasks, and watch its commands and output in the app. Take over its task space whenever you need to.
+<p align="center">
+  <a href="#what-you-can-do">Features</a> &nbsp;·&nbsp;
+  <a href="docs/installation.en.md">Installation</a> &nbsp;·&nbsp;
+  <a href="skills/vibe-ssh/guide.md">Agent guide</a> &nbsp;·&nbsp;
+  <a href="docs/README.md">Documentation</a> &nbsp;·&nbsp;
+  <a href="ROADMAP.md">Roadmap</a> &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
 
-Your own terminals remain separate from agent task spaces. Each space has its own SSH connection, and the client enforces who can write to it.
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub</a> · <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit mirror</a>
+</p>
 
-[Download the macOS preview](https://github.com/IntMainJhy/Vibe-SSH/releases) · [Installation](docs/installation.en.md) · [Agent guide](skills/vibe-ssh/guide.md) · [Roadmap](ROADMAP.md) · [Contribute](CONTRIBUTING.md)
+<p align="center">Your terminals and agent task spaces stay separate, each with its own SSH connection.</p>
 
 > **Preview software:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
 
