@@ -212,7 +212,7 @@ async fn agent_runs_uploads_and_follows_jobs_on_real_openssh() {
         ])
         .await;
     assert_eq!(put["status"], "succeeded", "{put}");
-    let script = "set -e\ncat 页面/index.html\necho\nls -A | sort | tr '\\n' ' '\n";
+    let script = "set -e\ncat 页面/index.html\necho\nls -A | LC_ALL=C sort | tr '\\n' ' '\n";
     let (code, job, err) = env
         .cli(&["run", "--lease", &lease, "--cwd", www], Some(script))
         .await;
