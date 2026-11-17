@@ -1,3 +1,5 @@
+![Vibe-SSH — SSH for you and your AI. Watch agent operations and take over.](docs/assets/vibe-ssh-hero.png)
+
 # Vibe-SSH
 
 **A desktop SSH client for people and external AI agents.**
@@ -8,6 +10,8 @@
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-111111.svg)](docs/installation.en.md)
 
 English · [简体中文](README.zh-CN.md)
+
+[GitHub](https://github.com/IntMainJhy/Vibe-SSH) · [AtomGit mirror](https://gitcode.com/InMainJhy/Vibe-SSH)
 
 Vibe-SSH is an open-source macOS SSH/SFTP client that gives **Codex, Claude Code and other command-line AI agents** a Skill-based interface to your servers. Add your own servers manually, let an agent run deployment or troubleshooting tasks, and watch its commands and output in the app. Take over its task space whenever you need to.
 

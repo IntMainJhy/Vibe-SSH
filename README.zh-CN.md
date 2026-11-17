@@ -1,3 +1,5 @@
+![Vibe-SSH — AI 操作，随时接管](docs/assets/vibe-ssh-hero.png)
+
 # Vibe-SSH
 
 **供用户与外部 AI Agent 共同使用的桌面 SSH 客户端。**
@@ -8,6 +10,8 @@
 [![macOS](https://img.shields.io/badge/platform-macOS-111111.svg)](docs/installation.md)
 
 [English](README.md) · 简体中文
+
+[GitHub 主仓库](https://github.com/IntMainJhy/Vibe-SSH) · [AtomGit 镜像](https://gitcode.com/InMainJhy/Vibe-SSH)
 
 Vibe-SSH 是开源的 macOS SSH/SFTP 客户端。你像使用日常 SSH 工具一样手动添加服务器，**Codex、Claude Code 等外部命令行 Agent** 通过 Skill 调用客户端，帮你执行指令、部署网站和排查服务器问题。
 

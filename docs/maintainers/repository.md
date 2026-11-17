@@ -27,6 +27,18 @@ GitHub repository search supports the repository name, description and Topics, a
 
 Sources: [repository search](https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories) and [repository Topics](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics).
 
+## AtomGit mirror
+
+Public mirror: <https://gitcode.com/InMainJhy/Vibe-SSH>. The AtomGit account is `InMainJhy`; the GitHub account is `IntMainJhy`.
+
+AtomGit's repository settings use a public **Pull** mirror from `https://github.com/IntMainJhy/Vibe-SSH.git`. Force-updating diverged branches is disabled. GitHub is the source of truth; submit code changes there, then inspect mirror status or use **立即同步** in AtomGit's mirror settings when needed. No GitHub access token is needed for this public source.
+
+The initial synchronization on 2026-11-17 matched main commit `c0dd063ab40331cc2cf169dc04f1ccbb1621a216`, all six published branches and four preview tags. Git mirroring copies source, commit history, branches and tags. It does not copy GitHub Issues, Discussions, Actions runs or release attachment files; download links continue to point to GitHub Releases.
+
+AtomGit's description records the external-agent workflow, manual server setup, human takeover, Rust/Tauri stack, MIT license and macOS preview scope. Its five project tags are `ssh`, `ai-agents`, `codex`, `sftp` and `devops`. The project URL points to the GitHub Releases page.
+
+The local Git remote is named `atomgit`, using `https://gitcode.com/InMainJhy/Vibe-SSH.git`. Do not use a force push or `git push --mirror` to synchronize the repository.
+
 ## Community entry points
 
 Enable Discussions for questions and workflow sharing, and private vulnerability reporting for sensitive security issues. The issue chooser links to both. Public issues use bilingual bug and feature forms; contributions follow the PR template and contribution guide.
