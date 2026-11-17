@@ -77,6 +77,11 @@ VIBE_SSH_LINUX_VM="$PWD/target/vm" cargo test -p vibe-ssh-cli --test linux
 
 发布版应用在临时数据目录下启动过：套接字建立，界面加载并调用了内核，Agent 在 Linux 虚拟机上打开空间并运行终端任务后，界面开始读取该任务的输出。真实窗口会把脚本错误、被内容安全策略拦截的资源和终端的实际尺寸报告给应用（`VIBE_SSH_TRACE=1` 时打印）：这次运行报告终端为 114×41、宽 936 像素，没有任何错误或拦截。本次开发环境不允许截屏，所以真实窗口的画面仍然没有被看到过；界面外观的检查来自浏览器预览加示例数据。
 
+应用也按用户的方式启动过（`open Vibe-SSH.app`，经系统的启动服务而不是直接运行可执行文件）：窗口加载，两个 Agent 空间出现后界面持续读取输出，没有脚本错误。这次启动暴露了两个问题：
+
+- 构建产物原先只有链接器给可执行文件的临时签名，整个应用包通不过 `codesign --verify --strict`。现在构建时对整个包做临时签名，校验通过。它仍然没有开发者签名和公证，`spctl` 的评估结果是拒绝，拷到别的 Mac 上会被系统拦截。
+- 数据目录放在“桌面”这类受系统隐私保护的文件夹里时，应用启动会卡在等待授权上，窗口不出现。默认的 `~/.vibe-ssh` 不受影响。
+
 ### M4 部署流程
 
 两个流程在一台刚创建的 Debian 13 虚拟机上，由 [run-guide.py](../scripts/run-guide.py) 逐块执行指南原文中的命令（只替换占位符），不是照着意思另写。
@@ -103,7 +108,7 @@ npx tauri build
 open ../../target/release/bundle/macos/Vibe-SSH.app
 ```
 
-应用是临时签名，没有公证，只适合在构建它的这台 Mac 上运行。数据目录是 `~/.vibe-ssh`（可用 `VIBE_SSH_HOME` 改变）：`hosts.json` 保存主机，`agent.sock` 是 Agent 入口。密码和私钥口令在系统钥匙串里，服务名 `io.github.intmainjhy.vibe-ssh`。
+应用包整体做了临时签名，没有开发者签名和公证，只适合在构建它的这台 Mac 上运行。数据目录是 `~/.vibe-ssh`（可用 `VIBE_SSH_HOME` 改变）：`hosts.json` 保存主机，`agent.sock` 是 Agent 入口。密码和私钥口令在系统钥匙串里，服务名 `io.github.intmainjhy.vibe-ssh`。
 
 界面左下角的“让 Agent 可以使用”把 Skill 链接到 `~/.agents/skills` 和 `~/.claude/skills`，并把应用自身链接为 `~/.local/bin/vibe-ssh`。之后 Agent 的用法见 `vibe-ssh skill`，协议见[外部 Agent 协议](03-agent-protocol.md)。
 
@@ -112,6 +117,7 @@ open ../../target/release/bundle/macos/Vibe-SSH.app
 ## 已知限制
 
 - 应用窗口关闭即退出，所有空间和连接随之结束；没有托盘常驻。
+- 用 `VIBE_SSH_HOME` 把数据目录指到“桌面”“文稿”等受隐私保护的文件夹时，应用启动会卡住；私钥文件放在这些文件夹里时，首次读取会弹出系统授权。
 - 任务与输出只在内存中，应用退出即丢失。
 - 同一系统用户下的进程都能读到 Agent 空间的当前租约；租约防过期请求，不防其他本机进程。
 - 通过标准输入提交的多行脚本在远端作为一个任务运行，接管不能阻止已在运行的脚本的后续行。
