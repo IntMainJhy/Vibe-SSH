@@ -891,6 +891,219 @@ button.panel-link {
 .app .file-footer {
   padding: 12px 9px 6px;
 }
+.file-columns {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr);
+  overflow: auto;
+  border-block: 1px solid var(--line);
+}
+.file-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.file-column + .file-column {
+  border-left: 1px solid var(--line);
+}
+.file-column-heading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 66px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.file-column-heading > div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.file-column-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.file-column-heading strong {
+  font: 12px var(--mono);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.file-column-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.file-column-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+.file-column-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-column-list li + li {
+  margin-top: 2px;
+}
+.file-column-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  padding: 11px 12px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  transition: background 160ms ease;
+}
+.file-column-entry > svg {
+  flex: none;
+}
+.file-column-entry > svg:last-child:not(:first-child) {
+  color: var(--muted);
+}
+.file-column-entry:hover:not(:disabled),
+.file-column-entry[aria-pressed="true"] {
+  background: var(--hover);
+}
+.file-column-entry[aria-pressed="true"] {
+  box-shadow: inset 3px 0 var(--ink);
+}
+.file-entry-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.file-entry-copy strong,
+.file-entry-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-entry-copy strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.file-entry-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.file-column-status {
+  flex: none;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.file-column-placeholder {
+  flex: 1 0 160px;
+  min-height: 160px;
+  gap: 14px;
+  padding: 24px 18px;
+  text-align: center;
+}
+.file-inspector {
+  overflow: auto;
+}
+.file-column-placeholder p {
+  color: var(--ink);
+  font-size: 13px;
+}
+.file-column-placeholder small {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.file-column-error {
+  padding: 28px 18px;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.file-details {
+  padding: 28px 24px;
+  overflow: auto;
+}
+.file-detail-icon {
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+.file-details h3 {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.file-detail-path {
+  color: var(--muted);
+  font: 12px/1.7 var(--mono);
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+  user-select: text;
+}
+.file-details dl {
+  display: grid;
+  gap: 16px;
+  margin: 26px 0;
+  font-size: 12px;
+}
+.file-details dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.file-details dt {
+  color: var(--muted);
+  flex: none;
+}
+.file-details dd {
+  margin: 0;
+  text-align: right;
+}
+.file-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.file-operation-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.file-operation-path code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app .file-footer {
+  gap: 16px;
+}
+.file-footer > span:last-child {
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-column-entry { transition: none; }
+}
+@media (max-height: 700px) {
+  .app .main.in-session {
+    overflow-y: auto;
+  }
+  .app .main .files-page {
+    min-height: 420px;
+    flex: 1 0 420px;
+  }
+}
 .app .agent-activity {
   left: auto;
   right: 22px;
