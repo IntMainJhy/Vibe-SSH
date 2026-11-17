@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "macOS SSH and SFTP desktop client for people and external AI agents"
 
 [features]
 # Developer-only: requires a disposable scripts/native-acceptance.py fixture.

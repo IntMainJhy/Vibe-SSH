@@ -21,6 +21,7 @@
 | [架构决策 0007](adr/0007-task-history.md) | 有界 SQLite 任务记录、输出尾部与重启语义 |
 | [架构决策 0006](adr/0006-directory-diff-preview.md) | 只读清单、选择性哈希、忽略与预算 |
 | [架构决策 0005](adr/0005-native-acceptance-isolation.md) | 原生窗口与临时 Keychain 验收隔离 |
+| [English installation](installation.en.md) | 英文安装、Agent 接入、升级与卸载 |
 | [架构决策 0004](adr/0004-remote-text-editing.md) | 有界远端文本编辑、备份、版本与控制代次检查 |
 | [架构决策 0003](adr/0003-desktop-files-and-onboarding.md) | 完整 SSH 工作台、自动 Skill 配置、SFTP 与监控 |
 | [架构决策 0002](adr/0002-task-spaces-and-agent-neutrality.md) | 任务空间、每空间一条连接、Agent 中立、里程碑调整 |
@@ -35,6 +36,11 @@
 6. 首版先验证 Linux/POSIX 远端；桌面目标为 macOS。
 7. 开发使用本地临时 SSH 服务验证，不依赖真实生产凭据。
 8. Agent 的每个目标是一个任务空间，拥有独立连接和控制权；用户自己的终端对 Agent 不可见。
+9. Vibe-SSH 自有代码采用 [MIT 协议](../LICENSE)，第三方组件保留各自许可。
+
+## 开源协作入口
+
+[English README](../README.md)、[中文首页](../README.zh-CN.md)、[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、[支持说明](../SUPPORT.md)、[路线图](../ROADMAP.md)与[更新日志](../CHANGELOG.md)面向使用者和贡献者。仓库简介、Topics 与维护约定见[仓库维护说明](maintainers/repository.md)。
 
 ## 决策管理
 

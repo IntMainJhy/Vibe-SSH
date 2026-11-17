@@ -7,6 +7,9 @@ version = "0.2.0-preview.5"
 edition = "2024"
 rust-version = "1.89"
 publish = false
+license = "MIT"
+repository = "https://github.com/IntMainJhy/Vibe-SSH"
+homepage = "https://github.com/IntMainJhy/Vibe-SSH"
 
 [workspace.dependencies]
 anyhow = "1"

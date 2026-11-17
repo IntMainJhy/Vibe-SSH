@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Protocol and task-space types for the Vibe-SSH agent-operable SSH client"
 
 [dependencies]
 serde.workspace = true

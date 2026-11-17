@@ -27,6 +27,8 @@ assert plistlib.loads((app/'Contents/Info.plist').read_bytes())['CFBundleShortVe
 subprocess.run(['codesign','--verify','--strict','--deep',str(app)],check=True)
 subprocess.run(['ditto',str(app),str(stage/'Vibe-SSH.app')],check=True)
 shutil.copyfile(root/'docs/installation.md',stage/'安装说明.md')
+shutil.copyfile(root/'docs/installation.en.md',stage/'INSTALLATION.md')
+shutil.copyfile(root/'LICENSE',stage/'LICENSE')
 revision = subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 (stage/'BUILD.txt').write_text(f'Version: {version}\nArchitecture: {arch}\nSource: https://github.com/IntMainJhy/Vibe-SSH/commit/{revision}\nSignature: ad-hoc, not Developer ID signed or notarized\n')
 notice = stage/'THIRD-PARTY-NOTICES'; notice.mkdir()

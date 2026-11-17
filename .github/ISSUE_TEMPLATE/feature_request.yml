@@ -1,0 +1,28 @@
+name: Feature request / 功能建议
+description: Describe a server workflow you want to improve / 描述希望改善的使用流程
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow / 问题与场景
+      description: What are you trying to do, and where does the workflow get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior / 希望的行为
+      description: Explain the observable result, including human takeover if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround / 目前的替代方式
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / 补充信息
+      description: Platform, remote OS, agent, or a small example. Remove sensitive details.
