@@ -155,4 +155,18 @@ vibe-ssh skill compose         # a Docker Compose project
 - Before replacing a working deployment, keep a way back (for example upload to
   a new release directory and switch after checks pass).
 
+
+
+## Read-only directory preview
+
+`vibe-ssh diff <space> <project-directory> <remote-directory>` lists bounded metadata without reading file contents. Add explicit relative paths with `--select src/main.rs --select Cargo.toml` to compare SHA-256 contents. Your CLI reads local files using your process permissions; the service receives only a manifest, never device paths. Default rules skip secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `.ssh`), dependencies and build output. `--exclude '*.log'` adds a component glob; this is not gitignore syntax. Symlinks are not followed. Ignored or unselected contents are never read.
+
+Each side is limited to 1000 entries, 64 KiB of relative path names and depth 16. Selected content is limited to 8 MiB/file and 32 MiB total. Read `truncated` and per-path `status`: `unverified` is not proof of equality; a partial listing is not proof that an item is absent. This preview never uploads, overwrites or deletes, and is not authorization or a version condition for a later write. Personal spaces are inaccessible. Directory reads and hashes are an optimistic observation, not an atomic remote snapshot.
+
+## Retained tasks and output
+
+`vibe-ssh history list [--offset 0 --limit 50]` and `vibe-ssh history get <record> [--tail 8192]` are read-only. They show Agent-origin records only while the host still exists and permits Agent access. Personal records and credentials are never returned. `record` is an archive ID, not a job, lease or cursor. Never rerun a command just because the client restarted or a record says unknown.
+
+The app saves a task intent before remote submission, periodically snapshots output, and commits the final observation. Each stream retains at most 64 KiB of raw tail with total byte counts and truncation flags; this is not a full audit log. The database retains the newest 256 completed records. A crash can lose output since the last snapshot; previously running records become unknown/client_restarted. A runtime job reports `record`, `record_saved` and `record_error`; a record failure does not change the real SSH outcome. Do not mistake missing, truncated or unknown evidence for remote failure or success. Commands and output may contain business secrets; do not put passwords in command lines.
+
 [vibe-ssh:skill] end of guide

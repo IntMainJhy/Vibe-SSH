@@ -167,16 +167,124 @@ const documents = new Map<
   { path: string; text: string; revision: string; save_supported: boolean }
 >();
 let conflicted = false;
+const historyRecords = spaces.flatMap((s) =>
+  s.jobs.map((j, i) => ({
+    record: `h${j.job.padStart(32, "0")}`,
+    host_name: s.host_name,
+    space_name: s.name,
+    actor: s.actor,
+    origin: s.origin,
+    command: j.command,
+    command_truncated: false,
+    pty: j.pty,
+    started_unix_ms: Date.now() - (i + 1) * 60_000,
+    elapsed_ms: 12400,
+    status: j.status === "running" ? "unknown" : j.status,
+    reason: j.status === "running" ? "client_restarted" : "exit_status",
+    exit_code: j.exit_code,
+  })),
+);
+const diffManifest = {
+  entries: [
+    { path: "src/index.ts", kind: "file", size: 2840, excluded: false },
+    { path: "package.json", kind: "file", size: 620, excluded: false },
+    { path: "README.md", kind: "file", size: 1240, excluded: false },
+    { path: ".env.production", kind: "file", size: 76, excluded: true },
+    { path: "node_modules", kind: "directory", size: null, excluded: true },
+    { path: "current", kind: "symlink", size: null, excluded: false },
+  ],
+  excludes: [
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    ".ssh",
+    ".env*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+  ],
+  truncated: false,
+};
 mockIPC(
   async (command, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
     switch (command) {
+      case "history_list":
+        if (scenario === "history-error")
+          throw { message: "任务记录不可用：数据库无法读取，请检查数据目录。" };
+        return {
+          records:
+            scenario === "empty"
+              ? []
+              : historyRecords.slice(args.offset, args.offset + args.limit),
+          more: false,
+        };
+      case "history_get": {
+        const record = historyRecords.find((r) => r.record === args.record)!;
+        const job = args.record.slice(-2);
+        const streams = output[job] ?? ["", ""];
+        return {
+          ...record,
+          stdout: {
+            text: streams[0],
+            total_bytes: new TextEncoder().encode(streams[0]).length,
+            truncated: false,
+            invalid_utf8: false,
+          },
+          stderr: {
+            text: streams[1],
+            total_bytes: new TextEncoder().encode(streams[1]).length,
+            truncated: false,
+            invalid_utf8: false,
+          },
+        };
+      }
+      case "choose_diff":
+        return {
+          id: "preview-source",
+          name: "/Projects/博客站点",
+          manifest: structuredClone(diffManifest),
+        };
+      case "forget_diff":
+        return;
+      case "rescan_diff":
+        if (args.excludes.some((s: string) => s.includes("/")))
+          throw { message: "忽略规则不能包含 /。" };
+        return {
+          ...structuredClone(diffManifest),
+          excludes: [...diffManifest.excludes, ...args.excludes],
+        };
+      case "compare_directory":
+        await sleep(150);
+        if (scenario === "diff-error")
+          throw { message: "比较期间服务器连接断开，请核实连接后重试。" };
+        return {
+          remote: args.remote,
+          truncated: false,
+          entries: diffManifest.entries.map((e) => ({
+            path: e.path,
+            local_size: e.size,
+            remote_size: e.path === "README.md" ? null : e.size,
+            status: e.excluded
+              ? "excluded"
+              : e.kind === "symlink"
+                ? "unsupported"
+                : e.path === "README.md"
+                  ? "local_only"
+                  : !args.selected.includes(e.path)
+                    ? "unverified"
+                    : e.path === "src/index.ts"
+                      ? "changed"
+                      : "same",
+          })),
+        };
       case "snapshot":
         if (scenario === "offline")
           throw { code: "SERVICE_UNAVAILABLE", message: "preview unavailable" };
         return structuredClone({
           status: {
-            version: "0.2.0-preview.4",
+            version: "0.2.0-preview.5",
             protocol_version: 2,
             instance: "preview",
           },

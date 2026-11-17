@@ -121,6 +121,185 @@ fn text(value: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn directory_preview_and_retained_jobs_are_private_and_survive_process_restart() {
+    let sshd = Sshd::start();
+    let home = sshd.path("history-home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::write(
+        home.join("hosts.json"),
+        serde_json::to_vec(&vec![sshd.host("box", "id_plain", true)]).unwrap(),
+    )
+    .unwrap();
+    let cli = |args: Vec<String>| {
+        let home = home.clone();
+        async move {
+            let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_vibe-ssh"))
+                .args(args)
+                .env("VIBE_SSH_HOME", home)
+                .output()
+                .await
+                .unwrap();
+            let decode =
+                |bytes: &[u8]| serde_json::from_slice::<Value>(bytes).unwrap_or(Value::Null);
+            (
+                output.status.code().unwrap(),
+                decode(&output.stdout),
+                decode(&output.stderr),
+            )
+        }
+    };
+    let start = || {
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_vibe-ssh"))
+            .arg("serve")
+            .env("VIBE_SSH_HOME", &home)
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap()
+    };
+    let wait = || async {
+        for _ in 0..100 {
+            if cli(vec!["status".into()]).await.0 == 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("service did not start");
+    };
+    let mut process = start();
+    wait().await;
+    let opened = cli(vec![
+        "space".into(),
+        "open".into(),
+        "box".into(),
+        "--name".into(),
+        "history".into(),
+    ])
+    .await;
+    assert_eq!(opened.0, 0, "{opened:?}");
+    let space = text(&opened.1["space"]);
+    let lease = text(&opened.1["control"]["lease"]);
+    let project = sshd.path("project");
+    let remote = sshd.path("remote-diff");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::create_dir(&remote).unwrap();
+    std::fs::write(project.join("中文.txt"), "same").unwrap();
+    std::fs::write(remote.join("中文.txt"), "same").unwrap();
+    let preview = cli(vec![
+        "diff".into(),
+        space.clone(),
+        project.display().to_string(),
+        remote.display().to_string(),
+        "--select".into(),
+        "中文.txt".into(),
+    ])
+    .await;
+    assert_eq!(preview.0, 0, "{preview:?}");
+    assert_eq!(preview.1["entries"][0]["status"], "same");
+    let marker = sshd.path("exactly-once");
+    let command = format!(
+        "printf 'once\\n' >> '{}'; printf 'persisted output\\n'; cat",
+        marker.display().to_string().replace('\'', "'\\''")
+    );
+    let running = cli(vec![
+        "run".into(),
+        "--lease".into(),
+        lease.clone(),
+        "--wait".into(),
+        "0".into(),
+        "--".into(),
+        command,
+    ])
+    .await;
+    assert_eq!(running.0, 0, "{running:?}");
+    let record = text(&running.1["record"]);
+    let job = text(&running.1["job"]);
+    for n in 0..100 {
+        let detail = cli(vec!["history".into(), "get".into(), record.clone()]).await;
+        if detail.1["stdout"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("persisted output")
+        {
+            break;
+        }
+        assert!(n < 99, "output was never persisted: {detail:?}");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    process.kill().await.unwrap();
+    process.wait().await.unwrap();
+    let mut restarted = start();
+    wait().await;
+    let recovered = cli(vec!["history".into(), "get".into(), record.clone()]).await;
+    assert_eq!(recovered.0, 1, "unknown is not success: {recovered:?}");
+    assert_eq!(recovered.1["reason"], "client_restarted");
+    assert!(text(&recovered.1["stdout"]["text"]).contains("persisted output"));
+    assert_eq!(
+        std::fs::read_to_string(marker).unwrap(),
+        "once\n",
+        "restart never replays a command"
+    );
+    let stale = cli(vec!["job".into(), "get".into(), job]).await;
+    assert_eq!(stale.2["error"]["code"], "INSTANCE_MISMATCH");
+    let stale = cli(vec![
+        "run".into(),
+        "--lease".into(),
+        lease,
+        "--".into(),
+        "false".into(),
+    ])
+    .await;
+    assert_eq!(stale.2["error"]["code"], "INSTANCE_MISMATCH");
+    // Revoking access or removing the host hides all its retained records.
+    std::fs::write(home.join("hosts.json"), "[]").unwrap();
+    assert!(
+        cli(vec!["history".into(), "list".into()]).await.1["records"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        cli(vec!["history".into(), "get".into(), record]).await.2["error"]["code"],
+        "NOT_FOUND"
+    );
+    restarted.kill().await.unwrap();
+    restarted.wait().await.unwrap();
+    // A broken history store must reject the task before remote execution.
+    std::fs::write(
+        home.join("hosts.json"),
+        serde_json::to_vec(&vec![sshd.host("box", "id_plain", true)]).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(home.join("history.sqlite"), b"corrupted fixture").unwrap();
+    let mut broken = start();
+    wait().await;
+    let opened = cli(vec![
+        "space".into(),
+        "open".into(),
+        "box".into(),
+        "--name".into(),
+        "refused intent".into(),
+    ])
+    .await;
+    let refusal = cli(vec![
+        "run".into(),
+        "--lease".into(),
+        text(&opened.1["control"]["lease"]),
+        "--".into(),
+        format!("touch '{}'", sshd.path("must-not-run").display()),
+    ])
+    .await;
+    assert_eq!(refusal.0, 2, "{refusal:?}");
+    assert!(!sshd.path("must-not-run").exists());
+    assert_eq!(
+        std::fs::read(home.join("history.sqlite")).unwrap(),
+        b"corrupted fixture"
+    );
+    broken.kill().await.unwrap();
+    broken.wait().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_runs_uploads_and_follows_jobs_on_real_openssh() {
     let env = Env::start().await;
     let hosts = env.ok(&["hosts"]).await;

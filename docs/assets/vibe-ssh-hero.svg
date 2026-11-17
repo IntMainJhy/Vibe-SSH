@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="840" viewBox="0 0 1600 840" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">Vibe-SSH — SSH for you and your AI.</title>
+  <desc id="hero-desc">A white ceramic connection emblem floats over a blue halo and midnight background. AI 操作，随时接管. Fine line drawings of terminals and servers describe the shared SSH workspace.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#f0f3f6"/>
+      <stop offset=".2" stop-color="#e4ecf4"/>
+      <stop offset=".48" stop-color="#5e9edd"/>
+      <stop offset=".75" stop-color="#122c5d"/>
+      <stop offset="1" stop-color="#101c40"/>
+    </linearGradient>
+    <radialGradient id="aura">
+      <stop stop-color="#1588ff"/>
+      <stop offset=".44" stop-color="#0873ed"/>
+      <stop offset=".7" stop-color="#1a6fd2" stop-opacity=".83"/>
+      <stop offset="1" stop-color="#1a6fd2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#101d43" stop-opacity="0"/>
+      <stop offset="1" stop-color="#101b3e"/>
+    </linearGradient>
+    <radialGradient id="rim">
+      <stop stop-color="#8ccfff" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#7fc8ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#d6eaff"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset=".5" stop-color="#f9fafc"/>
+      <stop offset="1" stop-color="#d8e0eb"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2=".55" y2="1">
+      <stop stop-color="#5b606b"/>
+      <stop offset=".28" stop-color="#292e39"/>
+      <stop offset=".65" stop-color="#111722"/>
+      <stop offset="1" stop-color="#050b13"/>
+    </linearGradient>
+    <linearGradient id="seam" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b1e7ff"/>
+      <stop offset=".5" stop-color="#338dff"/>
+      <stop offset="1" stop-color="#225bdf"/>
+    </linearGradient>
+    <filter id="bloom" x="-25%" y="-35%" width="150%" height="170%"><feGaussianBlur stdDeviation="34"/></filter>
+    <filter id="tile-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="15" stdDeviation="12" flood-color="#061b46" flood-opacity=".26"/></filter>
+    <filter id="metal-shadow" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#0b1b33" flood-opacity=".23"/></filter>
+    <filter id="seam-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="10"/></filter>
+    <clipPath id="frame"><rect width="1600" height="840"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1600" height="840" fill="url(#sky)"/>
+    <ellipse cx="800" cy="540" rx="960" ry="470" fill="url(#aura)" filter="url(#bloom)"/>
+    <ellipse cx="800" cy="342" rx="465" ry="260" fill="url(#rim)" opacity=".52"/>
+    <rect y="330" width="1600" height="510" fill="url(#night)"/>
+    <!-- Decorative connection and terminal line work; not an application screenshot. -->
+    <g fill="none" stroke="#4e9cfa" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" opacity=".21">
+      <g transform="translate(60 581) rotate(-13 130 130)">
+        <rect width="267" height="208" rx="19"/>
+        <path d="M0 38 H267"/>
+        <circle cx="23" cy="20" r="3"/><circle cx="39" cy="20" r="3"/><circle cx="55" cy="20" r="3"/>
+        <path d="M34 82 L57 102 L34 122 M75 124 H107 M34 158 H126 M34 178 H188"/>
+      </g>
+      <g transform="translate(1324 579) rotate(13 106 133)">
+        <rect width="211" height="62" rx="12"/><rect y="77" width="211" height="62" rx="12"/><rect y="154" width="211" height="62" rx="12"/>
+        <path d="M23 25 H92 M23 39 H68 M23 102 H92 M23 116 H68 M23 179 H92 M23 193 H68"/>
+        <circle cx="180" cy="31" r="5"/><circle cx="180" cy="108" r="5"/><circle cx="180" cy="185" r="5"/>
+      </g>
+      <g transform="translate(400 695) rotate(8 76 76)">
+        <path d="M0 23 Q0 9 15 9 H51 L66 26 H137 Q152 26 152 41 V123 Q152 138 137 138 H15 Q0 138 0 123 Z"/>
+        <path d="M51 76 H99 M83 60 L99 76 L83 92"/>
+      </g>
+      <g transform="translate(1052 689) rotate(-8 82 72)">
+        <rect width="163" height="133" rx="25"/>
+        <path d="M29 40 H134 M29 65 H101 M29 90 H117"/>
+        <path d="M50 133 V158 M114 133 V158 M31 158 H133"/>
+      </g>
+      <path d="M-50 845 C150 748 211 855 357 784 S522 681 651 766 S840 856 942 783 S1134 746 1237 790 S1450 874 1660 751"/>
+      <path d="M-25 869 C175 772 236 879 382 808 S547 705 676 790 S865 880 967 807 S1159 770 1262 814 S1475 898 1685 775" opacity=".48"/>
+      <path d="M320 728 C355 728 367 752 398 752 M1207 748 C1255 748 1276 706 1315 706"/>
+      <circle cx="631" cy="743" r="6"/><circle cx="985" cy="760" r="6"/>
+      <path d="M737 731 L759 709 M759 731 L737 709 M816 723 H854 M835 704 V742" opacity=".65"/>
+    </g>
+    <!-- Standalone editable mark is also supplied in vibe-ssh-mark.svg. -->
+    <svg x="629" y="72" width="342" height="342" viewBox="0 0 512 512" overflow="visible">
+      <rect x="40" y="35" width="432" height="432" rx="108" fill="url(#tile)" filter="url(#tile-shadow)"/>
+      <rect x="42" y="37" width="428" height="428" rx="106" fill="none" stroke="#fff" stroke-width="3" opacity=".95"/>
+      <rect x="51" y="46" width="410" height="410" rx="98" fill="none" stroke="#f7f9fc" stroke-width="2" opacity=".8"/>
+      <path d="M250 214 L262 298" stroke="#147aff" stroke-width="30" stroke-linecap="round" opacity=".38" filter="url(#seam-glow)"/>
+      <g filter="url(#metal-shadow)">
+        <path d="M326 131 H230 C167 131 125 168 125 221 C125 273 164 305 225 305 H245 V259 H226 C192 259 175 244 175 221 C175 195 195 177 232 177 H326 Z" fill="url(#metal)" stroke="#141a25" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M186 371 H282 C345 371 387 334 387 281 C387 229 348 197 287 197 H267 V243 H286 C320 243 337 258 337 281 C337 307 317 325 280 325 H186 Z" fill="url(#metal)" stroke="#141a25" stroke-width="1.5" stroke-linejoin="round"/>
+      </g>
+      <path d="M320 134 H232 C170 134 129 170 128 219" fill="none" stroke="#a0a5af" stroke-width="2.3" stroke-linecap="round" opacity=".7"/>
+      <path d="M272 200 H287 C347 200 383 231 384 279" fill="none" stroke="#9198a5" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+      <path d="M254 226 L258 276" stroke="url(#seam)" stroke-width="7" stroke-linecap="round"/>
+    </svg>
+    <g text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif">
+      <text x="800" y="509" font-size="111" font-weight="600" letter-spacing="-5" fill="url(#title-fill)">Vibe-SSH</text>
+      <text x="800" y="571" font-size="34" font-weight="400" letter-spacing=".25" fill="#e0edff">SSH for you and your AI.</text>
+      <text x="800" y="620" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="25" font-weight="400" letter-spacing="3" fill="#bbd5f6">AI 操作，随时接管</text>
+    </g>
+  </g>
+</svg>

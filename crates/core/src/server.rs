@@ -117,6 +117,17 @@ async fn dispatch<A: AsyncRead + Unpin>(
     Ok(match call {
         Call::Status => service.status(),
         Call::Hosts => json!(service.hosts(true)?),
+        Call::HistoryList { offset, limit } => {
+            json!(service.history_list(offset, limit, true).await?)
+        }
+        Call::HistoryGet { record, tail_bytes } => {
+            json!(service.history_get(&record, tail_bytes, true).await?)
+        }
+        Call::Diff {
+            space,
+            remote,
+            manifest,
+        } => json!(service.diff(&space, &remote, manifest, true).await?),
         Call::SpaceOpen { host, name, actor } => {
             json!(service.open(&host, &name, &actor, Owner::Agent).await?)
         }

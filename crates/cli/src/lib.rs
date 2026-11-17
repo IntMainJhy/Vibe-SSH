@@ -29,6 +29,20 @@ enum Command {
     Status,
     /// Hosts the user enabled for agents.
     Hosts,
+    /// Read-only retained tasks. Never restores or replays a command.
+    #[command(subcommand)]
+    History(HistoryCommand),
+    /// Read-only directory preview. Hashes only explicit --select relative paths.
+    Diff {
+        space: String,
+        local: PathBuf,
+        remote: String,
+        #[arg(long)]
+        select: Vec<String>,
+        /// Additional path-component glob (not gitignore syntax).
+        #[arg(long)]
+        exclude: Vec<String>,
+    },
     /// Task spaces: one per goal, each with its own SSH connection.
     #[command(subcommand)]
     Space(SpaceCommand),
@@ -77,6 +91,21 @@ struct Wait {
     /// Bytes of trailing output to return per stream.
     #[arg(long, default_value_t = DEFAULT_READ)]
     tail: usize,
+}
+
+#[derive(Subcommand)]
+enum HistoryCommand {
+    List {
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    Get {
+        record: String,
+        #[arg(long,default_value_t=DEFAULT_READ)]
+        tail: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -200,6 +229,28 @@ async fn run(command: Command) -> anyhow::Result<u8> {
         }
         Command::Status => Call::Status,
         Command::Hosts => Call::Hosts,
+        Command::History(HistoryCommand::List { offset, limit }) => {
+            Call::HistoryList { offset, limit }
+        }
+        Command::History(HistoryCommand::Get { record, tail }) => Call::HistoryGet {
+            record,
+            tail_bytes: tail,
+        },
+        Command::Diff {
+            space,
+            local,
+            remote,
+            select,
+            exclude,
+        } => {
+            let manifest = vibe_ssh_core::diff::scan(&local, &exclude)?;
+            let manifest = vibe_ssh_core::diff::select(&local, &manifest, &select)?;
+            Call::Diff {
+                space,
+                remote,
+                manifest,
+            }
+        }
         Command::Space(SpaceCommand::Open { host, name, actor }) => {
             Call::SpaceOpen { host, name, actor }
         }

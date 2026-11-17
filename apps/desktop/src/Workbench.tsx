@@ -1,7 +1,7 @@
 import type { Host, Job, Snapshot, Space } from "./api";
 import { Icon, type IconName } from "./Icon";
 
-export type HomeView = "overview" | "servers" | "sessions";
+export type HomeView = "overview" | "servers" | "sessions" | "history";
 export const STATUS: Record<Job["status"], string> = {
   running: "运行中",
   succeeded: "已完成",

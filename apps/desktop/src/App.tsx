@@ -16,6 +16,7 @@ import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 import { useWorkspace } from "./useWorkspace";
 import { Files } from "./Files";
+import { History } from "./History";
 import { Workbench, STATUS, failedJobs, type HomeView } from "./Workbench";
 import { Resources } from "./Resources";
 import { TransferTray, useTransfers, type TransferStart } from "./Transfers";
@@ -40,6 +41,7 @@ export function App() {
     return () => clearTimeout(timer);
   }, [ready]);
   const [homeView, setHomeView] = useState<HomeView>("overview");
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [views, setViews] = useState<
     Record<string, { page: Page; path: string }>
   >({});
@@ -96,7 +98,10 @@ export function App() {
       if (commandKey && !document.querySelector("dialog[open]")) {
         if (event.key.toLowerCase() === "k") {
           event.preventDefault();
-          if (matchMedia("(max-width: 680px)").matches) select(null);
+          if (matchMedia("(max-width: 680px)").matches) {
+            select(null);
+            setHomeView("overview");
+          }
           requestAnimationFrame(() => search.current?.focus());
         }
         if (event.key.toLowerCase() === "n") {
@@ -164,6 +169,7 @@ export function App() {
       className="app"
       data-agent-active={agents.length > 0}
       data-session={!!space}
+      data-view={space ? "session" : homeView}
       data-intro={intro}
     >
       <div className="desktop-drag" data-tauri-drag-region aria-hidden="true" />
@@ -182,6 +188,7 @@ export function App() {
               ["overview", "grid", "总览"],
               ["servers", "server", "服务器"],
               ["sessions", "terminal", "会话"],
+              ["history", "history", "历史"],
             ] as const
           ).map(([view, icon, label]) => (
             <button
@@ -207,6 +214,7 @@ export function App() {
             title="搜索（⌘K）"
             onClick={() => {
               select(null);
+              setHomeView("overview");
               requestAnimationFrame(() => search.current?.focus());
             }}
           >
@@ -378,7 +386,9 @@ export function App() {
                     ? "服务器"
                     : homeView === "sessions"
                       ? "会话"
-                      : "工作台"}
+                      : homeView === "history"
+                        ? "历史"
+                        : "工作台"}
               </span>
             </div>
             {!space && (
@@ -387,7 +397,9 @@ export function App() {
                   ? "服务器"
                   : homeView === "sessions"
                     ? "当前会话"
-                    : "服务器工作台"}
+                    : homeView === "history"
+                      ? "任务历史"
+                      : "服务器工作台"}
               </h1>
             )}
           </div>
@@ -401,6 +413,8 @@ export function App() {
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
+                  if (homeView === "history" && e.target.value)
+                    setHomeView("overview");
                   if (e.target.value) select(null);
                 }}
                 onKeyDown={(e) => {
@@ -417,7 +431,10 @@ export function App() {
               aria-label="刷新状态"
               title="刷新状态"
               disabled={refreshing}
-              onClick={() => void refresh()}
+              onClick={() => {
+                void refresh();
+                setHistoryRevision((n) => n + 1);
+              }}
             >
               <Icon name="refresh" size={17} />
             </button>
@@ -441,6 +458,11 @@ export function App() {
             <span>{error}</span>
             <button onClick={() => void refresh()}>重试</button>
           </div>
+        )}
+        {data?.status.history?.error && (
+          <p className="form-error" role="alert">
+            {data.status.history.error}
+          </p>
         )}
         {!data ? (
           <div className="loading">
@@ -487,6 +509,8 @@ export function App() {
             transfer={transfers.transfer}
             transferRevision={transfers.revision}
           />
+        ) : homeView === "history" ? (
+          <History revision={historyRevision} />
         ) : (
           <Workbench
             data={data}
@@ -640,6 +664,12 @@ function Session({
   const id = space.space;
   const busy = pending.includes(`space:${id}`);
   const writable = held && space.connected && job?.status === "running";
+  useEffect(() => {
+    if (page === "terminal" && job)
+      document
+        .getElementById(`tab-${job.job}`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [job?.job, page]);
   return (
     <>
       <header className="session-heading">

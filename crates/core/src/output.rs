@@ -25,6 +25,19 @@ impl OutputLog {
         self.total
     }
 
+    pub fn retained(&self, limit: usize) -> Vec<u8> {
+        self.bytes(self.total.saturating_sub(limit as u64), limit).0
+    }
+
+    pub fn restored(bytes: Vec<u8>, total: u64, closed: bool) -> Self {
+        Self {
+            limit: bytes.len(),
+            bytes: bytes.into(),
+            total,
+            closed,
+        }
+    }
+
     pub fn append(&mut self, data: &[u8]) {
         self.total += data.len() as u64;
         let data = &data[data.len().saturating_sub(self.limit)..];

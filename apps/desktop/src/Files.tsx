@@ -3,6 +3,7 @@ import { call, explain } from "./api";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { TextEditor } from "./TextEditor";
+import { DirectoryDiff } from "./DirectoryDiff";
 import { bytes, type TransferStart } from "./Transfers";
 
 type Entry = {
@@ -41,6 +42,7 @@ export function Files({
   const [query, setQuery] = useState("");
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState<Entry>();
+  const [comparing, setComparing] = useState(false);
   const [action, setAction] = useState<Action>();
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -189,6 +191,9 @@ export function Files({
           隐藏文件
         </label>
         <span className="grow" />
+        <button disabled={!data || loading} onClick={() => setComparing(true)}>
+          比较目录
+        </button>
         <button
           disabled={!writable || !data || loading}
           onClick={() => prepare({ kind: "mkdir" })}
@@ -360,6 +365,14 @@ export function Files({
             setEditing(undefined);
           }}
           onSaved={() => setReload((n) => n + 1)}
+        />
+      )}
+      {comparing && data && (
+        <DirectoryDiff
+          server={server}
+          space={space}
+          remote={data.path}
+          onClose={() => setComparing(false)}
         />
       )}
       {action && (

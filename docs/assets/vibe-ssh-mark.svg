@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="mark-title mark-desc">
+  <title id="mark-title">Vibe-SSH connection mark</title>
+  <desc id="mark-desc">Two opposing graphite connection segments form an S-shaped passage on a white ceramic tile, with a blue seam between them.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset=".5" stop-color="#f9fafc"/>
+      <stop offset="1" stop-color="#d8e0eb"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2=".55" y2="1">
+      <stop stop-color="#5b606b"/>
+      <stop offset=".28" stop-color="#292e39"/>
+      <stop offset=".65" stop-color="#111722"/>
+      <stop offset="1" stop-color="#050b13"/>
+    </linearGradient>
+    <linearGradient id="seam" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b1e7ff"/>
+      <stop offset=".5" stop-color="#338dff"/>
+      <stop offset="1" stop-color="#225bdf"/>
+    </linearGradient>
+    <filter id="tile-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="15" stdDeviation="12" flood-color="#061b46" flood-opacity=".22"/>
+    </filter>
+    <filter id="metal-shadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#0b1b33" flood-opacity=".23"/>
+    </filter>
+    <filter id="seam-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+  <rect x="40" y="35" width="432" height="432" rx="108" fill="url(#tile)" filter="url(#tile-shadow)"/>
+  <rect x="42" y="37" width="428" height="428" rx="106" fill="none" stroke="#fff" stroke-width="3" opacity=".95"/>
+  <rect x="51" y="46" width="410" height="410" rx="98" fill="none" stroke="#f7f9fc" stroke-width="2" opacity=".8"/>
+  <path d="M250 214 L262 298" stroke="#147aff" stroke-width="30" stroke-linecap="round" opacity=".38" filter="url(#seam-glow)"/>
+  <g filter="url(#metal-shadow)">
+    <path d="M326 131 H230 C167 131 125 168 125 221 C125 273 164 305 225 305 H245 V259 H226 C192 259 175 244 175 221 C175 195 195 177 232 177 H326 Z" fill="url(#metal)" stroke="#141a25" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M186 371 H282 C345 371 387 334 387 281 C387 229 348 197 287 197 H267 V243 H286 C320 243 337 258 337 281 C337 307 317 325 280 325 H186 Z" fill="url(#metal)" stroke="#141a25" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+  <path d="M320 134 H232 C170 134 129 170 128 219" fill="none" stroke="#a0a5af" stroke-width="2.3" stroke-linecap="round" opacity=".7"/>
+  <path d="M272 200 H287 C347 200 383 231 384 279" fill="none" stroke="#9198a5" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+  <path d="M254 226 L258 276" stroke="url(#seam)" stroke-width="7" stroke-linecap="round"/>
+</svg>

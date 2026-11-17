@@ -1,5 +1,7 @@
 //! Task-space SSH kernel shared by the local agent socket and the desktop app.
 
+pub mod diff;
+mod history;
 mod output;
 mod server;
 mod service;
@@ -41,3 +43,9 @@ impl From<russh::Error> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::new(ErrorCode::Internal, format!("file I/O: {error}"))
+    }
+}

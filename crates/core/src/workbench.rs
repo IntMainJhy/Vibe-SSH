@@ -1,5 +1,7 @@
 //! Desktop file and monitoring operations. No device paths are exposed on the agent socket.
 use super::*;
+#[path = "directory_diff.rs"]
+mod directory_diff;
 #[path = "editor.rs"]
 pub(super) mod editor;
 pub(super) struct FileSession {

@@ -11,6 +11,34 @@ pub const MAX_READ: usize = 1_048_576;
 pub const DEFAULT_READ: usize = 8_192;
 pub const MAX_WAIT_MS: u64 = 120_000;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ManifestEntry {
+    pub path: String,
+    pub kind: String,
+    pub size: Option<u64>,
+    pub digest: Option<String>,
+    pub excluded: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Manifest {
+    pub entries: Vec<ManifestEntry>,
+    pub excludes: Vec<String>,
+    pub truncated: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiffEntry {
+    pub path: String,
+    pub local_size: Option<u64>,
+    pub remote_size: Option<u64>,
+    pub status: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiffPreview {
+    pub remote: String,
+    pub entries: Vec<DiffEntry>,
+    pub truncated: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Owner {
@@ -18,7 +46,7 @@ pub enum Owner {
     Human,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
     Running,
@@ -26,6 +54,40 @@ pub enum JobStatus {
     Failed,
     /// The remote outcome has no evidence. It is never reported as success.
     Unknown,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HistoryRecord {
+    pub record: String,
+    pub host: String,
+    pub host_name: String,
+    pub space_name: String,
+    pub actor: String,
+    pub origin: Owner,
+    pub command: Option<String>,
+    pub cwd: Option<String>,
+    pub command_truncated: bool,
+    pub pty: bool,
+    pub started_unix_ms: u64,
+    pub elapsed_ms: u64,
+    pub status: JobStatus,
+    pub reason: Option<String>,
+    pub exit_code: Option<u32>,
+    pub exit_signal: Option<String>,
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
+}
+#[derive(Debug, Serialize)]
+pub struct HistoryPage {
+    pub records: Vec<HistoryRecord>,
+    pub more: bool,
+}
+#[derive(Debug, Serialize)]
+pub struct HistoryDetail {
+    #[serde(flatten)]
+    pub record: HistoryRecord,
+    pub stdout: Stream,
+    pub stderr: Stream,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -94,6 +156,9 @@ pub struct Control {
 #[derive(Clone, Debug, Serialize)]
 pub struct JobView {
     pub job: String,
+    pub record: String,
+    pub record_saved: bool,
+    pub record_error: Option<String>,
     pub space: String,
     pub command: Option<String>,
     pub status: JobStatus,
@@ -159,6 +224,19 @@ pub struct Request {
 pub enum Call {
     Status,
     Hosts,
+    HistoryList {
+        offset: usize,
+        limit: usize,
+    },
+    HistoryGet {
+        record: String,
+        tail_bytes: usize,
+    },
+    Diff {
+        space: String,
+        remote: String,
+        manifest: Manifest,
+    },
     SpaceOpen {
         host: String,
         name: String,

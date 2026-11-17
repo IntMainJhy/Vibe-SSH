@@ -6,8 +6,10 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use crate::history::{History, OUTPUT, short};
 use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     sync::{Notify, watch},
@@ -17,6 +19,7 @@ use vibe_ssh_protocol::{
     Control, ErrorCode, HostView, JobStatus, JobSummary, JobView, MAX_COMMAND, MAX_INPUT, MAX_READ,
     MAX_WAIT_MS, Owner, PROTOCOL_VERSION, Reason, SpaceView,
 };
+use vibe_ssh_protocol::{HistoryDetail, HistoryPage, HistoryRecord};
 
 use crate::{
     Error, Result,
@@ -81,6 +84,7 @@ struct Space {
     documents: Mutex<std::collections::VecDeque<(String, workbench::editor::EditBase)>>,
     file_operation: tokio::sync::Mutex<()>,
     monitoring: tokio::sync::Mutex<()>,
+    job_slots: Arc<tokio::sync::Semaphore>,
     /// The lease check and the transport submission share this one serialization boundary.
     control: tokio::sync::Mutex<ControlState>,
     changed: watch::Sender<u64>,
@@ -110,6 +114,11 @@ struct Job {
     /// Ends the job from this side. russh reports nothing back for a close we initiate.
     abort: Notify,
     progress: Mutex<Progress>,
+    record: HistoryRecord,
+    record_saved: AtomicBool,
+    record_error: Mutex<Option<String>>,
+    persistence: tokio::sync::Mutex<()>,
+    running_slot: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
 }
 
 #[derive(Default)]
@@ -128,6 +137,7 @@ pub struct Service {
     registry: Mutex<Registry>,
     events: watch::Sender<u64>,
     editor_save: tokio::sync::Mutex<()>,
+    history: Arc<History>,
 }
 
 fn err<T>(code: ErrorCode, message: impl Into<String>) -> Result<T> {
@@ -177,6 +187,7 @@ where
 impl Service {
     pub fn new(home: PathBuf, secrets: Secrets) -> Arc<Self> {
         Arc::new(Self {
+            history: History::new(home.clone()),
             home,
             instance: token(4),
             started: Instant::now(),
@@ -205,7 +216,42 @@ impl Service {
             "pid": std::process::id(),
             "uptime_s": self.started.elapsed().as_secs(),
             "spaces": spaces,
+            "history": self.history.status(),
         })
+    }
+
+    fn history_hosts(&self, agent: bool) -> Result<Option<std::collections::BTreeSet<String>>> {
+        Ok(if agent {
+            Some(
+                self.load_hosts()?
+                    .into_iter()
+                    .filter(|h| h.agent_access)
+                    .map(|h| h.id)
+                    .collect(),
+            )
+        } else {
+            None
+        })
+    }
+    pub async fn history_list(
+        &self,
+        offset: usize,
+        limit: usize,
+        agent: bool,
+    ) -> Result<HistoryPage> {
+        self.history
+            .list(self.history_hosts(agent)?, offset, limit)
+            .await
+    }
+    pub async fn history_get(
+        &self,
+        record: &str,
+        tail: usize,
+        agent: bool,
+    ) -> Result<HistoryDetail> {
+        self.history
+            .get(self.history_hosts(agent)?, record.into(), tail)
+            .await
     }
 
     /// The app uses this synchronously when the OS asks it to quit.
@@ -327,6 +373,7 @@ impl Service {
                 documents: Mutex::default(),
                 file_operation: tokio::sync::Mutex::new(()),
                 monitoring: tokio::sync::Mutex::new(()),
+                job_slots: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING)),
                 control: tokio::sync::Mutex::new(ControlState {
                     owner: origin,
                     lease: self.lease(id),
@@ -450,9 +497,9 @@ impl Service {
         }
         if cwd
             .as_ref()
-            .is_some_and(|p| !p.starts_with('/') || p.contains('\0'))
+            .is_some_and(|p| !p.starts_with('/') || p.contains('\0') || p.len() > 4096)
         {
-            return invalid("cwd must be an absolute NUL-free POSIX path");
+            return invalid("cwd must be an absolute NUL-free POSIX path, at most 4096 bytes");
         }
         if pty.is_some_and(|(columns, rows)| {
             !(1..=1000).contains(&columns) || !(1..=1000).contains(&rows)
@@ -475,11 +522,43 @@ impl Service {
         }
         // Opening a channel has no remote effect, so it stays outside the control lock
         // and a slow server cannot delay a takeover.
+        let slot = space.job_slots.clone().try_acquire_owned().map_err(|_| {
+            Error::new(
+                ErrorCode::ResourceLimit,
+                "too many running jobs in this space",
+            )
+        })?;
         let channel = space.conn.channel(pty).await?;
         let line = match (&command, &cwd) {
             (Some(command), Some(cwd)) => Some(format!("cd {} && {command}", quote_posix(cwd))),
             (command, _) => command.clone(),
         };
+        let record = HistoryRecord {
+            record: format!("h{}", Uuid::new_v4().simple()),
+            host: space.host.id.clone(),
+            host_name: short(&space.host.name, 256).0,
+            space_name: short(&space.name, 256).0,
+            actor: space.actor.clone(),
+            origin: space.origin,
+            command: command.as_ref().map(|c| short(c, 8192).0),
+            cwd: cwd.clone(),
+            command_truncated: command.as_ref().is_some_and(|c| c.len() > 8192),
+            pty: pty.is_some(),
+            started_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            elapsed_ms: 0,
+            status: JobStatus::Running,
+            reason: Some("starting".into()),
+            exit_code: None,
+            exit_signal: None,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+        };
+        if let Err(error) = self.history.save(record.clone(), vec![], vec![]).await {
+            let _ = channel.close().await;
+            return Err(error);
+        }
         let started = {
             let control = space.control.lock().await;
             match check(&control, &by) {
@@ -492,6 +571,25 @@ impl Service {
         };
         if let Err(error) = started {
             let _ = channel.close().await;
+            let mut rejected = record;
+            let unknown = matches!(
+                error.code,
+                ErrorCode::DeliveryUnknown | ErrorCode::ConnectionFailed
+            );
+            rejected.status = if unknown {
+                JobStatus::Unknown
+            } else {
+                JobStatus::Failed
+            };
+            rejected.reason = Some(
+                if unknown {
+                    "submission_unknown"
+                } else {
+                    "start_rejected"
+                }
+                .into(),
+            );
+            let _ = self.history.save(rejected, vec![], vec![]).await;
             return Err(error);
         }
         let (reader, writer) = channel.split();
@@ -507,6 +605,11 @@ impl Service {
                 started_unix_ms: SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64),
+                record,
+                record_saved: AtomicBool::new(true),
+                record_error: Mutex::new(None),
+                persistence: tokio::sync::Mutex::new(()),
+                running_slot: Mutex::new(Some(slot)),
                 writer,
                 abort: Notify::new(),
                 progress: Mutex::new(Progress {
@@ -538,7 +641,13 @@ impl Service {
             }
             job
         };
-        tokio::spawn(pump(job.clone(), reader, self.events.clone()));
+        tokio::spawn(pump(
+            job.clone(),
+            reader,
+            self.events.clone(),
+            self.history.clone(),
+        ));
+        tokio::spawn(record_output(job.clone(), self.history.clone()));
         bump(&self.events);
         Ok(self.job_id(job.id))
     }
@@ -864,6 +973,9 @@ impl Service {
         let more = progress.stdout.total() - out > 3 || progress.stderr.total() - error > 3;
         let id = self.job_id(job.id);
         JobView {
+            record: job.record.record.clone(),
+            record_saved: job.record_saved.load(Ordering::Acquire),
+            record_error: job.record_error.lock().unwrap().clone(),
             cursor: format!("{id}:{out}:{error}"),
             job: id,
             space: self.space_id(job.space.id),
@@ -886,6 +998,38 @@ impl Service {
 }
 
 impl Job {
+    fn record_snapshot(&self) -> (HistoryRecord, Vec<u8>, Vec<u8>) {
+        let p = self.progress.lock().unwrap();
+        let mut record = self.record.clone();
+        record.status = p.status;
+        record.reason = serde_json::to_value(p.reason)
+            .unwrap()
+            .as_str()
+            .map(str::to_owned);
+        record.exit_code = p.exit_code;
+        record.exit_signal = p.exit_signal.clone();
+        record.elapsed_ms = p
+            .elapsed_ms
+            .unwrap_or_else(|| self.started.elapsed().as_millis() as u64);
+        record.stdout_bytes = p.stdout.total();
+        record.stderr_bytes = p.stderr.total();
+        (record, p.stdout.retained(OUTPUT), p.stderr.retained(OUTPUT))
+    }
+    async fn persist(&self, history: &Arc<History>) {
+        let (record, out, err) = self.record_snapshot();
+        self.save_snapshot(history, record, out, err).await;
+    }
+    async fn save_snapshot(
+        &self,
+        history: &Arc<History>,
+        record: HistoryRecord,
+        out: Vec<u8>,
+        err: Vec<u8>,
+    ) {
+        let result = history.save(record, out, err).await;
+        *self.record_error.lock().unwrap() = result.as_ref().err().map(ToString::to_string);
+        self.record_saved.store(result.is_ok(), Ordering::Release);
+    }
     fn running(&self) -> bool {
         self.progress.lock().unwrap().status == JobStatus::Running
     }
@@ -914,7 +1058,23 @@ async fn settle(job: &Job, timeout_ms: u64, ready: impl Fn(&Progress) -> bool) {
 }
 
 /// Drains one channel into the job. Reading never needs control: output stays observable.
-async fn pump(job: Arc<Job>, mut reader: ChannelReadHalf, events: watch::Sender<u64>) {
+async fn record_output(job: Arc<Job>, history: Arc<History>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _saving = job.persistence.lock().await;
+        if !job.running() {
+            break;
+        }
+        job.persist(&history).await;
+    }
+}
+
+async fn pump(
+    job: Arc<Job>,
+    mut reader: ChannelReadHalf,
+    events: watch::Sender<u64>,
+    history: Arc<History>,
+) {
     let mut exit_code = None;
     let mut exit_signal = None;
     let outcome = loop {
@@ -959,12 +1119,27 @@ async fn pump(job: Arc<Job>, mut reader: ChannelReadHalf, events: watch::Sender<
         bump(&job.space.changed);
     };
     let _ = job.writer.close().await;
+    let _saving = job.persistence.lock().await;
+    job.record_saved.store(false, Ordering::Release);
     {
         let mut progress = job.progress.lock().unwrap();
         if let Some(why) = progress.cut.take() {
             let note = format!("\n[vibe-ssh] upload stopped before completion: {why}\n");
             progress.stderr.append(note.as_bytes());
         }
+    }
+    let (mut record, out, err) = job.record_snapshot();
+    record.status = outcome.0;
+    record.reason = serde_json::to_value(outcome.1)
+        .unwrap()
+        .as_str()
+        .map(str::to_owned);
+    record.exit_code = exit_code;
+    record.exit_signal = exit_signal.clone();
+    record.elapsed_ms = job.started.elapsed().as_millis() as u64;
+    job.save_snapshot(&history, record, out, err).await;
+    {
+        let mut progress = job.progress.lock().unwrap();
         (progress.status, progress.reason) = (outcome.0, Some(outcome.1));
         progress.exit_code = exit_code;
         progress.exit_signal = exit_signal;
@@ -972,6 +1147,7 @@ async fn pump(job: Arc<Job>, mut reader: ChannelReadHalf, events: watch::Sender<
         progress.stdout.closed = true;
         progress.stderr.closed = true;
     }
+    job.running_slot.lock().unwrap().take();
     bump(&job.space.changed);
     bump(&events);
 }

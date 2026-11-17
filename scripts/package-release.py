@@ -8,8 +8,12 @@ import subprocess
 import tomllib
 import plistlib
 import re
+import argparse
 
 root = Path(__file__).resolve().parents[1]
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--app',type=Path,default=root/'target/release/bundle/macos/Vibe-SSH.app')
+args=parser.parse_args()
 version = tomllib.loads((root/'Cargo.toml').read_text())['workspace']['package']['version']
 arch = platform.machine()
 assert arch in ('arm64', 'x86_64') and platform.system() == 'Darwin'
@@ -18,7 +22,7 @@ out = root/'target/distribution'; out.mkdir(parents=True, exist_ok=True)
 stage = out/name
 if stage.exists(): shutil.rmtree(stage)
 stage.mkdir()
-app = root/'target/release/bundle/macos/Vibe-SSH.app'
+app = args.app.resolve()
 assert plistlib.loads((app/'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] == version, 'rebuild the app before packaging'
 subprocess.run(['codesign','--verify','--strict','--deep',str(app)],check=True)
 subprocess.run(['ditto',str(app),str(stage/'Vibe-SSH.app')],check=True)

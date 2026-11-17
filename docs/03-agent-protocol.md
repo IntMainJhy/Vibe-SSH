@@ -18,6 +18,7 @@
 | `space open / list / get / handoff / close` | 任务空间与控制权 |
 | `run` | 在空间内执行命令或标准输入中的脚本 |
 | `put` | 上传本地文件或目录 |
+| `diff <space> <project> <remote> [--select path] [--exclude glob]` | 只读元数据与所选内容差异预览 |
 | `job get / wait / input / interrupt` | 查询、增量等待、输入、请求中断 |
 | `install-skill` | 把引导式 Skill 链接到 Agent 目录（用户的显式动作） |
 | `serve` | 无界面服务，仅供开发 |
@@ -157,3 +158,7 @@
 0.2.0-preview.2 保持协议 v2；新增的桌面 SFTP、设备文件选择、资源监控和自动接入配置不加入套接字。CLI `put` 仍使用已有 tar 流和覆盖语义，与桌面的“不覆盖单文件上传”是不同的明确入口。Skill 引导文件随应用启动同步，使用说明始终由当前 CLI 输出，无需协议迁移。
 
 0.2.0-preview.3 的文本预览、保存和草稿释放仅为桌面人工命令，不增加 Agent 方法；Agent `status` 不包含个人打开文档的信息。`FILE_CHANGED` 仅为桌面乐观版本检查错误，控制代次变化仍为 `CONTROL_REVOKED` / `STALE_LEASE`，提交结果待核实时为 `DELIVERY_UNKNOWN`。协议仍为 v2，无 CLI 迁移。
+
+目录差异：v2 新增 `diff {space, remote, manifest}` 只读方法。manifest 为 `entries[{path,kind,size,digest,excluded}]`、`excludes` 和 `truncated`；仅允许规范相对路径。CLI 在调用方读取所选内容，服务不接收设备路径。返回 `{remote, entries[{path,local_size,remote_size,status}], truncated}`。状态包括 same、changed、local_only、remote_only、type_conflict、directory、excluded、unsupported、unverified；截断时不据缺失判独有。预算与边界见 ADR 0006。旧方法兼容，新 CLI 需配套更新应用以支持新增方法。
+
+持久记录：v2 增加 `history_list {offset,limit}`（offset 0..512，limit 1..50），返回 `{records,more}`；`history_get {record,tail_bytes}` 返回元数据与 stdout/stderr Stream，最多每路 64 KiB。`h<32位hex>` 是独立历史 ID，不接受为 job / lease / cursor。Agent 只可读取 Agent 来源且目前主机仍允许接入的记录；不存在和不可见记录统一 NOT_FOUND。运行结果新增 `record`、`record_saved`、`record_error`，记录失败不等于远端失败。重启的未结束意图为 unknown/client_restarted；数据保存范围、锁、schema 与磁盘故障语义见 ADR 0007。未改变既有 v2 方法，新命令需更新应用。

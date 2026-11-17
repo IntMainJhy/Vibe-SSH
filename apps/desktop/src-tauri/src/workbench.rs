@@ -11,6 +11,106 @@ use tauri::Manager;
 use vibe_ssh_core::{Directory, TextDocument, TextSaved, TransferProgress};
 
 #[derive(Default)]
+pub struct DiffSources(Mutex<BTreeMap<String, (PathBuf, vibe_ssh_protocol::Manifest)>>);
+
+#[cfg(test)]
+impl DiffSources {
+    pub fn fixture(&self, id: &str, path: PathBuf, manifest: vibe_ssh_protocol::Manifest) {
+        self.0.lock().unwrap().insert(id.into(), (path, manifest));
+    }
+}
+
+#[tauri::command]
+pub async fn choose_diff(
+    state: State<'_, DiffSources>,
+    excludes: Vec<String>,
+) -> Reply<Option<Value>> {
+    vibe_ssh_core::diff::rules(&excludes).map_err(fail)?;
+    let Some(folder) = rfd::AsyncFileDialog::new()
+        .set_title("选择要比较的项目目录")
+        .pick_folder()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = folder.path().to_path_buf();
+    let root = path.clone();
+    let manifest =
+        tauri::async_runtime::spawn_blocking(move || vibe_ssh_core::diff::scan(&root, &excludes))
+            .await
+            .map_err(|_| invalid("目录读取任务未完成，请重试。"))?
+            .map_err(fail)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let result = json!({"id":id,"name":path.display().to_string(),"manifest":manifest});
+    let mut sources = state.0.lock().unwrap();
+    if sources.len() >= 4 {
+        let key = sources.keys().next().unwrap().clone();
+        sources.remove(&key);
+    }
+    sources.insert(id, (path, manifest));
+    Ok(Some(result))
+}
+#[tauri::command]
+pub fn forget_diff(state: State<'_, DiffSources>, id: String) {
+    state.0.lock().unwrap().remove(&id);
+}
+#[tauri::command]
+pub async fn rescan_diff(
+    state: State<'_, DiffSources>,
+    id: String,
+    excludes: Vec<String>,
+) -> Reply<vibe_ssh_protocol::Manifest> {
+    let root = state
+        .0
+        .lock()
+        .unwrap()
+        .get(&id)
+        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
+        .0
+        .clone();
+    let manifest =
+        tauri::async_runtime::spawn_blocking(move || vibe_ssh_core::diff::scan(&root, &excludes))
+            .await
+            .map_err(|_| invalid("目录读取任务未完成，请重试。"))?
+            .map_err(fail)?;
+    state
+        .0
+        .lock()
+        .unwrap()
+        .get_mut(&id)
+        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
+        .1 = manifest.clone();
+    Ok(manifest)
+}
+#[tauri::command]
+pub async fn compare_directory(
+    kernel: Kernel<'_>,
+    state: State<'_, DiffSources>,
+    id: String,
+    selected: Vec<String>,
+    space: String,
+    remote: String,
+) -> Reply<vibe_ssh_protocol::DiffPreview> {
+    let (root, manifest) = state
+        .0
+        .lock()
+        .unwrap()
+        .get(&id)
+        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
+        .clone();
+    let manifest = tauri::async_runtime::spawn_blocking(move || {
+        vibe_ssh_core::diff::select(&root, &manifest, &selected)
+    })
+    .await
+    .map_err(|_| invalid("文件校验任务未完成，请重试。"))?
+    .map_err(fail)?;
+    kernel
+        .diff(&space, &remote, manifest, false)
+        .await
+        .map_err(fail)
+}
+
+#[derive(Default)]
 pub struct Transfers(Mutex<BTreeMap<String, (String, Arc<AtomicBool>)>>);
 impl Transfers {
     pub fn active(&self) -> usize {

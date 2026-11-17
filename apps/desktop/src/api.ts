@@ -39,6 +39,7 @@ export type Snapshot = {
     version: string;
     protocol_version: number;
     instance: string;
+    history?: { initialized: boolean; error: string | null };
   };
   open_documents?: number;
   hosts: Host[];

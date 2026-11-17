@@ -276,6 +276,25 @@ async fn linux_resources_and_files_use_real_remote_data() {
                 .await
                 .unwrap();
             assert_eq!(data, changed.as_bytes());
+            let project = tempfile::tempdir().unwrap();
+            std::fs::write(project.path().join("配置.txt"), changed).unwrap();
+            let manifest = vibe_ssh_core::diff::scan(project.path(), &[]).unwrap();
+            let selected =
+                vibe_ssh_core::diff::select(project.path(), &manifest, &["配置.txt".into()])
+                    .unwrap();
+            let preview = service
+                .diff(&space, &folder, selected, false)
+                .await
+                .unwrap();
+            assert_eq!(
+                preview
+                    .entries
+                    .iter()
+                    .find(|e| e.path == "配置.txt")
+                    .unwrap()
+                    .status,
+                "same"
+            );
             let mut backup = Vec::new();
             service
                 .download_file(

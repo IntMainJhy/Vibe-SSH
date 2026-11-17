@@ -63,6 +63,26 @@ async fn host_key(host: String, port: u16) -> Reply<(String, String)> {
 }
 
 #[tauri::command]
+async fn history_list(
+    kernel: Kernel<'_>,
+    offset: usize,
+    limit: usize,
+) -> Reply<vibe_ssh_protocol::HistoryPage> {
+    kernel
+        .history_list(offset, limit, false)
+        .await
+        .map_err(fail)
+}
+#[tauri::command]
+async fn history_get(
+    kernel: Kernel<'_>,
+    record: String,
+    tail: usize,
+) -> Reply<vibe_ssh_protocol::HistoryDetail> {
+    kernel.history_get(&record, tail, false).await.map_err(fail)
+}
+
+#[tauri::command]
 async fn save_host(
     kernel: Kernel<'_>,
     credentials: State<'_, Credentials>,
@@ -270,6 +290,8 @@ fn commands<R: tauri::Runtime>(
         Box::new(tauri::generate_handler![
             snapshot,
             host_key,
+            history_list,
+            history_get,
             save_host,
             delete_host,
             open_terminal,
@@ -282,6 +304,10 @@ fn commands<R: tauri::Runtime>(
             job_resize,
             job_interrupt,
             workbench::files,
+            workbench::choose_diff,
+            workbench::forget_diff,
+            workbench::rescan_diff,
+            workbench::compare_directory,
             workbench::text_file,
             workbench::save_text,
             workbench::forget_text,
@@ -300,6 +326,7 @@ fn commands<R: tauri::Runtime>(
         .manage(service)
         .manage(credentials)
         .manage(workbench::Transfers::default())
+        .manage(workbench::DiffSources::default())
         .manage(workbench::Integration::default())
         .invoke_handler(move |invoke| {
             if trace {
@@ -400,7 +427,7 @@ fn main() -> ExitCode {
 mod tests {
     use serde_json::{Value, json};
     use tauri::{
-        WebviewWindow, WebviewWindowBuilder,
+        Manager, WebviewWindow, WebviewWindowBuilder,
         ipc::{CallbackFn, InvokeBody},
         test::{
             INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets,
@@ -603,11 +630,59 @@ mod tests {
         )
         .unwrap();
         assert_eq!(service.open_documents(), 0);
+        let project = sshd.path("compare-project");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("选择.txt"), "same").unwrap();
+        std::fs::write(directory.join("选择.txt"), "same").unwrap();
+        let manifest = vibe_ssh_core::diff::scan(&project, &[]).unwrap();
+        app.state::<super::workbench::DiffSources>()
+            .fixture("chosen", project, manifest);
+        let preview = invoke(
+            &webview,
+            "compare_directory",
+            json!({"id":"chosen","selected":["选择.txt"],"space":mine,"remote":directory}),
+        )
+        .unwrap();
+        assert_eq!(preview["entries"][0]["status"], "same");
+        assert!(
+            invoke(
+                &webview,
+                "compare_directory",
+                json!({"id":"not-chosen","selected":[],"space":mine,"remote":directory})
+            )
+            .is_err()
+        );
+        invoke(&webview, "forget_diff", json!({"id":"chosen"})).unwrap();
+        let history = invoke(&webview, "history_list", json!({"offset":0,"limit":50})).unwrap();
+        let personal = history["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["origin"] == "human")
+            .unwrap();
+        let retained = invoke(
+            &webview,
+            "history_get",
+            json!({"record":personal["record"],"tail":8192}),
+        )
+        .unwrap();
+        assert!(retained["stdout"]["total_bytes"].is_number());
+        assert!(
+            block(service.history_get(personal["record"].as_str().unwrap(), 8192, true)).is_err(),
+            "human history is visible only on the human bridge"
+        );
         invoke(&webview, "close_space", json!({"space": mine})).unwrap();
         invoke(&webview, "close_space", json!({"space": space})).unwrap();
         assert_eq!(
             invoke(&webview, "snapshot", json!({})).unwrap()["spaces"],
             json!([])
+        );
+        assert!(
+            !invoke(&webview, "history_list", json!({"offset":0,"limit":50})).unwrap()["records"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "closing spaces preserves task records"
         );
     }
 }
