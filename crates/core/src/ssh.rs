@@ -180,17 +180,21 @@ impl Connection {
         Ok(channel)
     }
 
-    pub async fn sftp(&self) -> Result<russh_sftp::client::RawSftpSession> {
+    pub async fn sftp(&self) -> Result<(russh_sftp::client::RawSftpSession, bool)> {
         let mut channel = self.channel(None).await?;
         channel.request_subsystem(true, "sftp").await?;
         await_reply(&mut channel).await?;
         let session = russh_sftp::client::RawSftpSession::new(channel.into_stream());
         session.set_timeout(3);
-        session
+        let version = session
             .init()
             .await
             .map_err(|e| Error::new(ErrorCode::ChannelRejected, format!("SFTP: {e}")))?;
-        Ok(session)
+        let extensions = ["posix-rename@openssh.com", "hardlink@openssh.com"];
+        let editable = extensions
+            .iter()
+            .all(|name| version.extensions.get(*name).is_some_and(|v| v == "1"));
+        Ok((session, editable))
     }
 
     pub async fn disconnect(&self) {

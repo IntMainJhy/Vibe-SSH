@@ -156,6 +156,17 @@ const fileEntries = [
     permissions: 0o120777,
   },
 ];
+const fileTexts: Record<string, string> = {
+  "/home/deploy/compose.yaml":
+    'services:\n  web:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n    restart: unless-stopped\n',
+  "/home/deploy/server.log": "2026-11-17T12:00:00Z server ready\n",
+  "/home/deploy/.profile": 'export PATH="$HOME/.local/bin:$PATH"\n',
+};
+const documents = new Map<
+  string,
+  { path: string; text: string; revision: string; save_supported: boolean }
+>();
+let conflicted = false;
 mockIPC(
   async (command, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
@@ -165,10 +176,11 @@ mockIPC(
           throw { code: "SERVICE_UNAVAILABLE", message: "preview unavailable" };
         return structuredClone({
           status: {
-            version: "0.2.0-preview.1",
+            version: "0.2.0-preview.3",
             protocol_version: 2,
             instance: "preview",
           },
+          open_documents: documents.size,
           hosts,
           spaces,
           skill: { skill: true, cli: true },
@@ -195,6 +207,56 @@ mockIPC(
           ),
           truncated: false,
         };
+      }
+      case "text_file": {
+        await sleep(120);
+        if (!(args.path in fileTexts))
+          throw { message: "此文件不是可预览的 UTF-8 文本。" };
+        const doc = {
+          path: args.path,
+          text: fileTexts[args.path],
+          revision: `doc-${++counter}`,
+          save_supported: true,
+        };
+        documents.set(doc.revision, doc);
+        void emit("changed");
+        return structuredClone(doc);
+      }
+      case "forget_text":
+        documents.delete(args.revision);
+        void emit("changed");
+        return;
+      case "save_text": {
+        await sleep(150);
+        if (
+          spaces.find((s) => s.space === args.space)?.control.owner !== "human"
+        )
+          throw { code: "CONTROL_REVOKED" };
+        const doc = documents.get(args.revision);
+        if (!doc) throw { message: "文件版本已过期，请重新打开" };
+        if (scenario === "editor-conflict" && !conflicted) {
+          fileTexts[doc.path] += "# changed by another process\n";
+          conflicted = true;
+        }
+        if (fileTexts[doc.path] !== doc.text)
+          throw {
+            code: "FILE_CHANGED",
+            message:
+              "远端文件已被修改，未覆盖任何内容。草稿已保留，请复制草稿或重新读取远端版本。",
+          };
+        const backup = `/home/deploy/.vibe-backup-${++counter}`;
+        fileTexts[backup] = doc.text;
+        fileTexts[doc.path] = args.text;
+        const entry = fileEntries.find((e) => e.path === doc.path);
+        if (entry) {
+          entry.size = new TextEncoder().encode(args.text).length;
+          entry.modified = Date.now() / 1000;
+        }
+        documents.delete(doc.revision);
+        const next = { ...doc, text: args.text, revision: `doc-${++counter}` };
+        documents.set(next.revision, next);
+        void emit("changed");
+        return { document: structuredClone(next), backup };
       }
       case "resources":
         await sleep(150);

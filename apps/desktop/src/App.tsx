@@ -54,7 +54,7 @@ export function App() {
     data?.spaces.flatMap((s) => s.jobs).filter((j) => j.status === "running")
       .length ?? 0;
   const runningRef = useRef(running);
-  runningRef.current = running + transfers.active;
+  runningRef.current = running + transfers.active + (data?.open_documents ?? 0);
   const notify = useCallback(
     (text: string) => setNotice({ text, kind: "error" }),
     [],
@@ -451,8 +451,9 @@ export function App() {
           </span>
           <h2 id="quit-title">退出 Vibe-SSH？</h2>
           <p>
-            还有 {running + transfers.active}{" "}
-            个任务或传输在运行。退出会断开所有连接，Agent
+            还有 {running + transfers.active} 个任务或传输在运行，
+            {data?.open_documents ?? 0}{" "}
+            份文本文件打开。退出会丢弃未保存编辑并断开所有连接，Agent
             也无法继续操作。远端程序是否停止需要另行确认。
           </p>
           <div className="actions">
@@ -882,6 +883,7 @@ function Session({
       </nav>
       {page === "files" ? (
         <Files
+          server={space.host_name}
           space={id}
           writable={held && space.connected}
           transfer={transfer}

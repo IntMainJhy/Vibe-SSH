@@ -35,7 +35,12 @@ export type Space = {
 };
 
 export type Snapshot = {
-  status: { version: string; protocol_version: number; instance: string };
+  status: {
+    version: string;
+    protocol_version: number;
+    instance: string;
+  };
+  open_documents?: number;
   hosts: Host[];
   spaces: Space[];
   skill: { skill: boolean; cli: boolean };

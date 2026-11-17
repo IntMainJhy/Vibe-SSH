@@ -52,6 +52,7 @@ async fn snapshot(
 ) -> Reply<Value> {
     Ok(json!({
         "status": kernel.status(),
+        "open_documents": kernel.open_documents(),
         "hosts": kernel.load_hosts().map_err(fail)?,
         "spaces": kernel.spaces(false).await,
         "skill": skill::installed(kernel.home(), &integration_home()),
@@ -273,6 +274,9 @@ fn commands<R: tauri::Runtime>(
             job_resize,
             job_interrupt,
             workbench::files,
+            workbench::text_file,
+            workbench::save_text,
+            workbench::forget_text,
             workbench::resources,
             workbench::file_action,
             workbench::upload_files,
@@ -346,7 +350,7 @@ fn main() -> ExitCode {
         })
         .on_menu_event(move |app, event| {
             if event.id().as_ref() == "quit-confirm" {
-                if menu_service.running_jobs() > 0 || {
+                if menu_service.running_jobs() > 0 || menu_service.open_documents() > 0 || {
                     use tauri::Manager;
                     app.state::<workbench::Transfers>().active() > 0
                 } {
@@ -375,7 +379,7 @@ fn main() -> ExitCode {
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
-                && (quitting.running_jobs() > 0 || {
+                && (quitting.running_jobs() > 0 || quitting.open_documents() > 0 || {
                     use tauri::Manager;
                     app.state::<workbench::Transfers>().active() > 0
                 })
@@ -553,6 +557,43 @@ mod tests {
         .unwrap_err();
         assert_eq!(refused["code"], "CONTROL_REVOKED");
         assert!(invoke(&webview, "resources", json!({"space":mine})).is_err());
+        let text_path = sshd.path("editor.txt");
+        std::fs::write(&text_path, "original").unwrap();
+        let text = invoke(
+            &webview,
+            "text_file",
+            json!({"space":mine,"path":text_path}),
+        )
+        .unwrap();
+        assert_eq!(text["text"], "original");
+        assert_eq!(service.open_documents(), 1);
+        let updated = invoke(
+            &webview,
+            "save_text",
+            json!({"space":mine,"revision":text["revision"],"text":"界面保存\r\n"}),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&text_path).unwrap(), "界面保存\r\n");
+        assert_eq!(
+            std::fs::read_to_string(updated["backup"].as_str().unwrap()).unwrap(),
+            "original"
+        );
+        assert_eq!(service.open_documents(), 1);
+        std::fs::write(&text_path, "external change").unwrap();
+        let changed = invoke(
+            &webview,
+            "save_text",
+            json!({"space":mine,"revision":updated["document"]["revision"],"text":"overwrite"}),
+        )
+        .unwrap_err();
+        assert_eq!(changed["code"], "FILE_CHANGED");
+        invoke(
+            &webview,
+            "forget_text",
+            json!({"space":mine,"revision":updated["document"]["revision"]}),
+        )
+        .unwrap();
+        assert_eq!(service.open_documents(), 0);
         invoke(&webview, "close_space", json!({"space": mine})).unwrap();
         invoke(&webview, "close_space", json!({"space": space})).unwrap();
         assert_eq!(

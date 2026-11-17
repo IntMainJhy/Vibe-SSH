@@ -8,7 +8,7 @@ use std::{
     },
 };
 use tauri::Manager;
-use vibe_ssh_core::{Directory, TransferProgress};
+use vibe_ssh_core::{Directory, TextDocument, TextSaved, TransferProgress};
 
 #[derive(Default)]
 pub struct Transfers(Mutex<BTreeMap<String, (String, Arc<AtomicBool>)>>);
@@ -56,6 +56,27 @@ fn update<R: tauri::Runtime>(
 pub async fn files(kernel: Kernel<'_>, space: String, path: String) -> Reply<Directory> {
     kernel.files(&space, &path).await.map_err(fail)
 }
+#[tauri::command]
+pub async fn text_file(kernel: Kernel<'_>, space: String, path: String) -> Reply<TextDocument> {
+    kernel.text_file(&space, &path).await.map_err(fail)
+}
+#[tauri::command]
+pub async fn save_text(
+    kernel: Kernel<'_>,
+    space: String,
+    revision: String,
+    text: String,
+) -> Reply<TextSaved> {
+    kernel
+        .save_text(By::Human(&space), &revision, &text)
+        .await
+        .map_err(fail)
+}
+#[tauri::command]
+pub fn forget_text(kernel: Kernel<'_>, space: String, revision: String) -> Reply<()> {
+    kernel.forget_text(&space, &revision).map_err(fail)
+}
+
 #[tauri::command]
 pub async fn resources(kernel: Kernel<'_>, space: String) -> Reply<Value> {
     kernel.resources(&space).await.map_err(fail)

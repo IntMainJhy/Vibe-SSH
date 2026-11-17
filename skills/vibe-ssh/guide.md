@@ -1,6 +1,6 @@
 # vibe-ssh usage guide (protocol 2)
 
-The installed app automatically synchronizes this version-matched bootstrap Skill and CLI on startup. If `vibe-ssh` is missing from PATH, use `"$HOME/.local/bin/vibe-ssh" skill`. Desktop users can also use terminal, SFTP files and Linux monitoring pages. Those human file-picker/monitoring commands are not Agent socket methods; use only the Agent commands documented below.
+The installed app automatically synchronizes this version-matched bootstrap Skill and CLI on startup. If `vibe-ssh` is missing from PATH, use `"$HOME/.local/bin/vibe-ssh" skill`. Desktop users can also use terminal, SFTP files, bounded UTF-8 text editing and Linux monitoring pages. Those human file-picker/monitoring commands are not Agent socket methods; use only the Agent commands documented below.
 
 Vibe-SSH is the user's SSH client. You operate servers the user added to it; the
 user sees everything you do in the app and can take over at any moment. You

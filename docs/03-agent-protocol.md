@@ -155,3 +155,5 @@
 
 
 0.2.0-preview.2 保持协议 v2；新增的桌面 SFTP、设备文件选择、资源监控和自动接入配置不加入套接字。CLI `put` 仍使用已有 tar 流和覆盖语义，与桌面的“不覆盖单文件上传”是不同的明确入口。Skill 引导文件随应用启动同步，使用说明始终由当前 CLI 输出，无需协议迁移。
+
+0.2.0-preview.3 的文本预览、保存和草稿释放仅为桌面人工命令，不增加 Agent 方法；Agent `status` 不包含个人打开文档的信息。`FILE_CHANGED` 仅为桌面乐观版本检查错误，控制代次变化仍为 `CONTROL_REVOKED` / `STALE_LEASE`，提交结果待核实时为 `DELIVERY_UNKNOWN`。协议仍为 v2，无 CLI 迁移。

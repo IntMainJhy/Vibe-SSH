@@ -5522,7 +5522,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibe-ssh-cli"
-version = "0.2.0-preview.2"
+version = "0.2.0-preview.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -5535,7 +5535,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-core"
-version = "0.2.0-preview.2"
+version = "0.2.0-preview.3"
 dependencies = [
  "anyhow",
  "rand 0.10.4",
@@ -5543,6 +5543,7 @@ dependencies = [
  "russh-sftp",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -5552,7 +5553,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-desktop"
-version = "0.2.0-preview.2"
+version = "0.2.0-preview.3"
 dependencies = [
  "rfd",
  "security-framework",
@@ -5569,7 +5570,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-protocol"
-version = "0.2.0-preview.2"
+version = "0.2.0-preview.3"
 dependencies = [
  "serde",
  "uuid",

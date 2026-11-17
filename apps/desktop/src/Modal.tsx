@@ -31,6 +31,14 @@ export function Modal({
       ref={dialog}
       className={`dialog ${className}`}
       aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        // Handle Escape before the browser close watcher: repeated close requests
+        // can produce a non-cancelable native cancel event and hide a dirty editor.
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!busy) close.current();
+      }}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) close.current();

@@ -2328,3 +2328,243 @@ button.take:hover:not(:disabled) {
     min-height: 340px;
   }
 }
+/* Remote text is displayed as data. The editor never executes file content. */
+.dialog.text-editor-dialog {
+  width: min(920px, calc(100vw - 40px));
+  max-width: none;
+  height: min(700px, calc(100dvh - 40px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  overflow: hidden;
+}
+.text-editor-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.text-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--line);
+  gap: 16px;
+  flex: none;
+}
+.text-editor-header > div {
+  min-width: 0;
+}
+.text-editor-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.text-editor-header p {
+  margin-top: 5px;
+  color: var(--muted);
+  font: 12px var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-unsaved {
+  font-size: 12px;
+  font-weight: 400;
+  padding: 2px 6px;
+  background: var(--hover);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.text-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.text-editor-toolbar > div {
+  display: flex;
+  gap: 7px;
+}
+.text-editor-toolbar button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.text-editor-input {
+  display: block;
+  flex: 1;
+  min-height: 70px;
+  width: 100%;
+  resize: none;
+  border: 0;
+  padding: 18px 22px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.65 var(--mono);
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.text-editor-input:focus {
+  outline: none;
+  box-shadow: inset 2px 0 var(--ink);
+}
+.text-editor-input[readonly] {
+  background: var(--canvas);
+  color: var(--muted);
+}
+.text-editor-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+.text-editor-footer > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.editor-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  padding: 20px;
+}
+.editor-error,
+.editor-message {
+  flex: none;
+  max-height: 110px;
+  overflow: auto;
+  padding: 10px 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.editor-error {
+  background: var(--hover);
+  color: var(--ink);
+  border-left: 3px solid var(--ink);
+}
+.editor-message {
+  color: var(--muted);
+}
+.editor-backup {
+  font-family: var(--mono);
+}
+.editor-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  background: var(--paper);
+  padding: 32px;
+}
+.editor-confirm h3 {
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+.editor-confirm p {
+  margin-bottom: 24px;
+  color: var(--muted);
+}
+@media (max-width: 680px) {
+  .dialog.text-editor-dialog {
+    width: calc(100vw - 20px);
+    height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+  .text-editor-header {
+    padding: 14px;
+  }
+  .text-editor-toolbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+  }
+  .text-editor-input {
+    padding: 12px;
+  }
+  .text-editor-footer {
+    padding: 10px 12px;
+  }
+}
+
+.editor-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.text-editor-header > div {
+  flex: 1;
+  min-width: 0;
+}
+.text-editor-header h2 svg,
+.editor-unsaved {
+  flex: none;
+}
+.editor-filename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.text-editor-header p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-server {
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+.editor-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-confirm .editor-confirm-context {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  color: var(--ink);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.editor-confirm-context strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.editor-confirm-context code {
+  font: 12px/1.5 var(--mono);
+  color: var(--muted);
+}
+.editor-confirm .actions {
+  flex-wrap: wrap;
+}

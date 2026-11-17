@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { call, explain } from "./api";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
+import { TextEditor } from "./TextEditor";
 import { bytes, type TransferStart } from "./Transfers";
 
 type Entry = {
@@ -15,6 +16,7 @@ type Entry = {
 type Directory = { path: string; entries: Entry[]; truncated: boolean };
 type Action = { kind: "mkdir" | "rename" | "delete"; entry?: Entry };
 export function Files({
+  server,
   space,
   writable,
   transfer,
@@ -22,6 +24,7 @@ export function Files({
   initialPath,
   onDirectory,
 }: {
+  server: string;
   space: string;
   writable: boolean;
   transfer: TransferStart;
@@ -37,11 +40,23 @@ export function Files({
   const [hidden, setHidden] = useState(false);
   const [query, setQuery] = useState("");
   const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState<Entry>();
   const [action, setAction] = useState<Action>();
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const serial = useRef(0);
+  const restoreEditor = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (editing || loading || !restoreEditor.current) return;
+    const button = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button[data-preview-path]"),
+    ).find((button) => button.dataset.previewPath === restoreEditor.current);
+    if (button) {
+      button.focus();
+      restoreEditor.current = undefined;
+    }
+  }, [editing, loading, data]);
   const directoryChanged = useRef(onDirectory);
   directoryChanged.current = onDirectory;
   useEffect(() => {
@@ -222,10 +237,12 @@ export function Files({
                   <button
                     className="file-name"
                     title={entry.path}
-                    disabled={
-                      loading || !["directory", "symlink"].includes(entry.kind)
+                    disabled={loading || entry.kind === "other"}
+                    onClick={() =>
+                      entry.kind === "file"
+                        ? setEditing(entry)
+                        : open(entry.path)
                     }
-                    onClick={() => open(entry.path)}
                   >
                     <Icon
                       name={
@@ -264,6 +281,18 @@ export function Files({
                     {entry.kind === "file" && (
                       <button
                         className="icon-button"
+                        data-preview-path={entry.path}
+                        aria-label={`查看 / 编辑 ${entry.name}`}
+                        title="查看 / 编辑文本"
+                        disabled={loading}
+                        onClick={() => setEditing(entry)}
+                      >
+                        <Icon name="edit" size={15} />
+                      </button>
+                    )}
+                    {entry.kind === "file" && (
+                      <button
+                        className="icon-button"
                         aria-label={`下载 ${entry.name}`}
                         title="下载"
                         disabled={loading}
@@ -281,7 +310,7 @@ export function Files({
                       disabled={!writable || loading}
                       onClick={() => prepare({ kind: "rename", entry })}
                     >
-                      <Icon name="edit" size={15} />
+                      <Icon name="rename" size={15} />
                     </button>
                     <button
                       className="icon-button"
@@ -320,6 +349,19 @@ export function Files({
         </span>
         <span>SFTP · {writable ? "可管理" : "只读"}</span>
       </footer>
+      {editing && (
+        <TextEditor
+          server={server}
+          space={space}
+          path={editing.path}
+          writable={writable}
+          onClose={() => {
+            restoreEditor.current = editing.path;
+            setEditing(undefined);
+          }}
+          onSaved={() => setReload((n) => n + 1)}
+        />
+      )}
       {action && (
         <Modal
           titleId="file-action-title"

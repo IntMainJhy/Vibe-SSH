@@ -242,6 +242,282 @@ async fn linux_resources_and_files_use_real_remote_data() {
     assert!(resources["disk_total"].as_u64().unwrap() > resources["disk_used"].as_u64().unwrap());
     let files = service.files(&space, "/proc").await.unwrap();
     assert!(files.entries.iter().any(|e| e.name == "stat"));
+    let folder = format!("/tmp/vibe-editor-{}", uuid::Uuid::new_v4().simple());
+    service
+        .file_action(By::Human(&space), "mkdir", &folder, None)
+        .await
+        .unwrap();
+    let case = {
+        let (service, space, folder) = (service.clone(), space.clone(), folder.clone());
+        tokio::spawn(async move {
+            let remote = format!("{folder}/配置.txt");
+            let initial = "\u{feff}service=old\r\n";
+            service
+                .upload_file(
+                    By::Human(&space),
+                    &remote,
+                    initial.as_bytes(),
+                    initial.len() as u64,
+                    &AtomicBool::new(false),
+                    |_| {},
+                )
+                .await
+                .unwrap();
+            let doc = service.text_file(&space, &remote).await.unwrap();
+            assert!(doc.save_supported);
+            let changed = "\u{feff}service=部署完成🚀\r\n";
+            let saved = service
+                .save_text(By::Human(&space), &doc.revision, changed)
+                .await
+                .unwrap();
+            let mut data = Vec::new();
+            service
+                .download_file(&space, &remote, &mut data, &AtomicBool::new(false), |_| {})
+                .await
+                .unwrap();
+            assert_eq!(data, changed.as_bytes());
+            let mut backup = Vec::new();
+            service
+                .download_file(
+                    &space,
+                    saved.backup.as_ref().unwrap(),
+                    &mut backup,
+                    &AtomicBool::new(false),
+                    |_| {},
+                )
+                .await
+                .unwrap();
+            assert_eq!(backup, initial.as_bytes());
+            assert!(
+                service
+                    .save_text(By::Human(&space), &doc.revision, "old")
+                    .await
+                    .is_err()
+            );
+            service
+                .forget_text(&space, &saved.document.revision)
+                .unwrap();
+        })
+    }
+    .await;
+    // Cleanup also runs if the test task panicked, and only touches its own UUID directory.
+    if let Ok(list) = service.files(&space, &folder).await {
+        for entry in list.entries {
+            service
+                .file_action(By::Human(&space), "delete", &entry.path, None)
+                .await
+                .unwrap();
+        }
+        service
+            .file_action(By::Human(&space), "delete", &folder, None)
+            .await
+            .unwrap();
+    }
+    case.unwrap();
     println!("real Linux resources: {resources}");
     service.close(By::Human(&space)).await.unwrap();
+}
+
+#[tokio::test]
+async fn editor_versions_preserve_original_on_conflicts_and_save_with_backup() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let sshd = sshd::Sshd::start();
+    let service = Service::new(sshd.path("service"), Box::new(|_| None));
+    std::fs::create_dir(service.home()).unwrap();
+    service
+        .save_hosts(&[sshd.host("test", "id_plain", true)])
+        .unwrap();
+    let space = service
+        .open("test", "editor", "me", Owner::Human)
+        .await
+        .unwrap()
+        .space;
+    let path = sshd.path("配置 '文件.txt");
+    std::fs::write(&path, "one").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let baseline = std::fs::metadata(&path).unwrap();
+    let remote = path.to_str().unwrap();
+    let first = service.text_file(&space, remote).await.unwrap();
+    assert!(first.save_supported);
+    assert_eq!(first.text, "one");
+    assert_eq!(service.open_documents(), 1);
+    // Same bytes and second-resolution metadata are not a sufficient version check.
+    std::fs::write(&path, "two").unwrap();
+    std::fs::File::open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(baseline.modified().unwrap()))
+        .unwrap();
+    assert_eq!(
+        service
+            .save_text(By::Human(&space), &first.revision, "new")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::FileChanged
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
+    let fresh = service.text_file(&space, remote).await.unwrap();
+    let other = service.text_file(&space, remote).await.unwrap();
+    let saved = service
+        .save_text(By::Human(&space), &fresh.revision, "部署完成🚀\r\n")
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "部署完成🚀\r\n");
+    assert_eq!(
+        std::fs::read_to_string(saved.backup.as_ref().unwrap()).unwrap(),
+        "two"
+    );
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert_eq!(metadata.mode() & 0o7777, baseline.mode() & 0o7777);
+    assert_eq!(
+        (metadata.uid(), metadata.gid()),
+        (baseline.uid(), baseline.gid())
+    );
+    assert!(
+        service
+            .save_text(By::Human(&space), &fresh.revision, "replay")
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        service
+            .save_text(By::Human(&space), &other.revision, "stale")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::FileChanged
+    );
+    let same = service
+        .save_text(
+            By::Human(&space),
+            &saved.document.revision,
+            &saved.document.text,
+        )
+        .await
+        .unwrap();
+    assert!(
+        same.backup.is_none(),
+        "unchanged save performs no remote write"
+    );
+    service
+        .forget_text(&space, &same.document.revision)
+        .unwrap();
+    // Type and permission changes also invalidate a version.
+    let permissions = service.text_file(&space, remote).await.unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        service
+            .save_text(By::Human(&space), &permissions.revision, "overwrite")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::FileChanged
+    );
+    let removed = service.text_file(&space, remote).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(
+        service
+            .save_text(By::Human(&space), &removed.revision, "recreate")
+            .await
+            .is_err()
+    );
+    assert!(!path.exists());
+    let target = sshd.path("other");
+    std::fs::write(&target, "other").unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    assert!(service.text_file(&space, remote).await.is_err());
+    assert!(
+        service
+            .save_text(By::Human(&space), &removed.revision, "follow")
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "other");
+    service.close(By::Human(&space)).await.unwrap();
+    assert_eq!(service.open_documents(), 0);
+}
+
+#[tokio::test]
+async fn editor_rejects_binary_large_expired_and_control_periods() {
+    let sshd = sshd::Sshd::start();
+    let service = Service::new(sshd.path("service"), Box::new(|_| None));
+    std::fs::create_dir(service.home()).unwrap();
+    service
+        .save_hosts(&[sshd.host("test", "id_plain", true)])
+        .unwrap();
+    let agent = service
+        .open("test", "editor", "test", Owner::Agent)
+        .await
+        .unwrap();
+    let lease = agent.control.lease.unwrap();
+    let space = &agent.space;
+    let path = sshd.path("bounded.txt");
+    let remote = path.to_str().unwrap();
+    for data in [vec![0, 1, 2], vec![255], vec![b'a'; 1_048_577]] {
+        std::fs::write(&path, data).unwrap();
+        assert!(service.text_file(space, remote).await.is_err());
+    }
+    std::fs::write(&path, "original").unwrap();
+    service.takeover(space).await.unwrap();
+    let draft = service.text_file(space, remote).await.unwrap();
+    assert_eq!(
+        service
+            .save_text(By::Lease(&lease), &draft.revision, "agent stale")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ControlRevoked
+    );
+    service.release(space).await.unwrap();
+    assert_eq!(
+        service
+            .save_text(By::Human(space), &draft.revision, "user stale")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ControlRevoked
+    );
+    service.takeover(space).await.unwrap();
+    assert_eq!(
+        service
+            .save_text(By::Human(space), &draft.revision, "old period")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleLease
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    let oldest = service.text_file(space, remote).await.unwrap();
+    for _ in 0..8 {
+        service.text_file(space, remote).await.unwrap();
+    }
+    assert_eq!(service.open_documents(), 8);
+    assert_eq!(
+        service
+            .save_text(By::Human(space), &oldest.revision, "evicted")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let current = service.text_file(space, remote).await.unwrap();
+    assert!(
+        service
+            .save_text(By::Human(space), &current.revision, &"x".repeat(1_048_577))
+            .await
+            .is_err()
+    );
+    let other = service
+        .open("test", "other", "me", Owner::Human)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .save_text(By::Human(&other.space), &current.revision, "wrong space")
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    service.close(By::Human(space)).await.unwrap();
+    service.close(By::Human(&other.space)).await.unwrap();
 }

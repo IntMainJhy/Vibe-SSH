@@ -1,6 +1,6 @@
 # Vibe-SSH 方案总览
 
-日期：2026-11-17。版本：0.2.0-preview.2。阶段：M1 Agent 闭环已在 Linux 上验证，M2 桌面应用已实现、待人工验收，M4 的两个部署流程已在 Linux 上跑通。
+日期：2026-11-17。版本：0.2.0-preview.3。阶段：M1 Agent 闭环已在 Linux 上验证，M2 桌面应用已实现、待人工验收，M4 的两个部署流程已在 Linux 上跑通。
 
 本方案将 Vibe-SSH 定义为可由外部 Agent 高效操作的桌面 SSH 客户端。服务器由用户手动添加，操作在客户端内核中统一执行，客户端提供真实输出和可执行的接管动作。
 
@@ -18,6 +18,7 @@
 | [开发与实现状态](06-development-and-status.md) | 当前代码能做什么，如何复现验证 |
 | [架构决策 0001](adr/0001-runtime-and-reuse.md) | 为什么选 Rust/Tauri，如何复用开源组件 |
 | [安装说明](installation.md) | 分发包、自动接入、签名与卸载边界 |
+| [架构决策 0004](adr/0004-remote-text-editing.md) | 有界远端文本编辑、备份、版本与控制代次检查 |
 | [架构决策 0003](adr/0003-desktop-files-and-onboarding.md) | 完整 SSH 工作台、自动 Skill 配置、SFTP 与监控 |
 | [架构决策 0002](adr/0002-task-spaces-and-agent-neutrality.md) | 任务空间、每空间一条连接、Agent 中立、里程碑调整 |
 

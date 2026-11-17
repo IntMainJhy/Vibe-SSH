@@ -26,6 +26,7 @@ use crate::{
 
 #[path = "workbench.rs"]
 mod workbench;
+pub use workbench::editor::{TextDocument, TextSaved};
 pub use workbench::{Directory, RemoteEntry, TransferProgress};
 
 /// Bound on one transport submission made while holding a space's control lock.
@@ -76,7 +77,8 @@ struct Space {
     actor: String,
     origin: Owner,
     conn: Connection,
-    files: tokio::sync::Mutex<Option<Arc<russh_sftp::client::RawSftpSession>>>,
+    files: tokio::sync::Mutex<Option<Arc<workbench::FileSession>>>,
+    documents: Mutex<std::collections::VecDeque<(String, workbench::editor::EditBase)>>,
     file_operation: tokio::sync::Mutex<()>,
     monitoring: tokio::sync::Mutex<()>,
     /// The lease check and the transport submission share this one serialization boundary.
@@ -125,6 +127,7 @@ pub struct Service {
     secrets: Secrets,
     registry: Mutex<Registry>,
     events: watch::Sender<u64>,
+    editor_save: tokio::sync::Mutex<()>,
 }
 
 fn err<T>(code: ErrorCode, message: impl Into<String>) -> Result<T> {
@@ -180,6 +183,7 @@ impl Service {
             secrets,
             registry: Mutex::default(),
             events: watch::Sender::new(0),
+            editor_save: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -193,13 +197,14 @@ impl Service {
     }
 
     pub fn status(&self) -> Value {
+        let spaces = self.registry.lock().unwrap().spaces.len();
         json!({
             "version": env!("CARGO_PKG_VERSION"),
             "protocol_version": PROTOCOL_VERSION,
             "instance": self.instance,
             "pid": std::process::id(),
             "uptime_s": self.started.elapsed().as_secs(),
-            "spaces": self.registry.lock().unwrap().spaces.len(),
+            "spaces": spaces,
         })
     }
 
@@ -212,6 +217,17 @@ impl Service {
             .values()
             .filter(|job| job.running())
             .count()
+    }
+
+    /// A native quit guard also protects open text documents, even without running jobs.
+    pub fn open_documents(&self) -> usize {
+        self.registry
+            .lock()
+            .unwrap()
+            .spaces
+            .values()
+            .map(|space| space.documents.lock().unwrap().len())
+            .sum()
     }
 
     // ---- hosts: written only by the user through the embedding process ----
@@ -308,6 +324,7 @@ impl Service {
                 origin,
                 conn,
                 files: tokio::sync::Mutex::new(None),
+                documents: Mutex::default(),
                 file_operation: tokio::sync::Mutex::new(()),
                 monitoring: tokio::sync::Mutex::new(()),
                 control: tokio::sync::Mutex::new(ControlState {
@@ -349,10 +366,12 @@ impl Service {
     pub async fn close(&self, by: By<'_>) -> Result<()> {
         let space = self.space_of(&by)?;
         {
-            let control = space.control.lock().await;
+            let mut control = space.control.lock().await;
             if matches!(by, By::Lease(_)) {
                 check(&control, &by)?;
             }
+            control.lease = self.lease(space.id);
+            control.owner = Owner::Human;
             let mut registry = self.registry.lock().unwrap();
             registry.spaces.remove(&space.id);
             registry.jobs.retain(|_, job| job.space.id != space.id);

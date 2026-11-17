@@ -44,6 +44,8 @@ pub enum Reason {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     InvalidRequest,
+    /// Desktop-only optimistic file version check failed.
+    FileChanged,
     VersionMismatch,
     NotFound,
     /// The id, lease or cursor belongs to a service instance that no longer exists.

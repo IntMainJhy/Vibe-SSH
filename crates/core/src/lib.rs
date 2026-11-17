@@ -8,7 +8,9 @@ mod ssh;
 mod upload;
 
 pub use server::{default_home, request, serve, socket_path};
-pub use service::{By, Chunk, Directory, RemoteEntry, Secrets, Service, TransferProgress};
+pub use service::{
+    By, Chunk, Directory, RemoteEntry, Secrets, Service, TextDocument, TextSaved, TransferProgress,
+};
 pub use ssh::{Host, host_key};
 pub use upload::Archive;
 pub use vibe_ssh_protocol::ErrorCode;

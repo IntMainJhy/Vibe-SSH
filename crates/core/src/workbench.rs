@@ -1,5 +1,17 @@
 //! Desktop file and monitoring operations. No device paths are exposed on the agent socket.
 use super::*;
+#[path = "editor.rs"]
+pub(super) mod editor;
+pub(super) struct FileSession {
+    session: RawSftpSession,
+    editable: bool,
+}
+impl std::ops::Deref for FileSession {
+    type Target = RawSftpSession;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
 use russh_sftp::{
     client::{RawSftpSession, error::Error as SftpError},
     protocol::{FileAttributes, OpenFlags, StatusCode},
@@ -63,7 +75,7 @@ fn stopped(cancel: &AtomicBool) -> Result<()> {
 }
 
 impl Space {
-    async fn sftp(&self) -> Result<Arc<RawSftpSession>> {
+    async fn sftp(&self) -> Result<Arc<FileSession>> {
         let mut slot = self.files.lock().await;
         if self.conn.is_closed() {
             return err(
@@ -74,7 +86,8 @@ impl Space {
         if let Some(session) = &*slot {
             return Ok(session.clone());
         }
-        let session = Arc::new(self.conn.sftp().await?);
+        let (session, editable) = self.conn.sftp().await?;
+        let session = Arc::new(FileSession { session, editable });
         *slot = Some(session.clone());
         Ok(session)
     }
