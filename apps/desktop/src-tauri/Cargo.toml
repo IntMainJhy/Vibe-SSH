@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# Developer-only: requires a disposable scripts/native-acceptance.py fixture.
+native-acceptance = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

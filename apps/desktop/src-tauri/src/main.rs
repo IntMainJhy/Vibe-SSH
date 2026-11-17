@@ -3,9 +3,8 @@
 
 use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
-use security_framework::passwords::{
-    delete_generic_password, get_generic_password, set_generic_password,
-};
+mod credentials;
+use credentials::Credentials;
 use serde_json::{Value, json};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, State};
@@ -16,9 +15,6 @@ use vibe_ssh_protocol::{ErrorBody, Owner, SpaceView};
 #[cfg(test)]
 #[path = "../../../../crates/cli/tests/support/sshd.rs"]
 mod sshd;
-
-/// Keychain service name. The account is the host id; the value is its password or passphrase.
-const KEYCHAIN: &str = "io.github.intmainjhy.vibe-ssh";
 
 type Kernel<'a> = State<'a, Arc<Service>>;
 type Reply<T> = Result<T, ErrorBody>;
@@ -67,7 +63,12 @@ async fn host_key(host: String, port: u16) -> Reply<(String, String)> {
 }
 
 #[tauri::command]
-async fn save_host(kernel: Kernel<'_>, mut host: Host, secret: Option<String>) -> Reply<Host> {
+async fn save_host(
+    kernel: Kernel<'_>,
+    credentials: State<'_, Credentials>,
+    mut host: Host,
+    secret: Option<String>,
+) -> Reply<Host> {
     host.name = host.name.trim().to_owned();
     host.host = host.host.trim().to_owned();
     host.username = host.username.trim().to_owned();
@@ -97,10 +98,12 @@ async fn save_host(kernel: Kernel<'_>, mut host: Host, secret: Option<String>) -
         host.id = uuid::Uuid::new_v4().simple().to_string()[..8].to_owned();
     }
     if let Some(secret) = secret.filter(|secret| !secret.is_empty()) {
-        set_generic_password(KEYCHAIN, &host.id, secret.as_bytes()).map_err(|e| ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("Keychain: {e}"),
-        })?;
+        credentials
+            .set(&host.id, secret.as_bytes())
+            .map_err(|e| ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("Keychain: {e}"),
+            })?;
     }
     match hosts.iter_mut().find(|known| known.id == host.id) {
         Some(known) => *known = host.clone(),
@@ -111,11 +114,15 @@ async fn save_host(kernel: Kernel<'_>, mut host: Host, secret: Option<String>) -
 }
 
 #[tauri::command]
-async fn delete_host(kernel: Kernel<'_>, id: String) -> Reply<()> {
+async fn delete_host(
+    kernel: Kernel<'_>,
+    credentials: State<'_, Credentials>,
+    id: String,
+) -> Reply<()> {
     let mut hosts = kernel.load_hosts().map_err(fail)?;
     hosts.retain(|host| host.id != id);
     kernel.save_hosts(&hosts).map_err(fail)?;
-    let _ = delete_generic_password(KEYCHAIN, &id);
+    credentials.delete(&id);
     Ok(())
 }
 
@@ -257,6 +264,7 @@ fn ui_report(message: String) {
 fn commands<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
     service: Arc<Service>,
+    credentials: Credentials,
 ) -> tauri::Builder<R> {
     let handler: Box<dyn Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync> =
         Box::new(tauri::generate_handler![
@@ -290,6 +298,7 @@ fn commands<R: tauri::Runtime>(
     let trace = std::env::var_os("VIBE_SSH_TRACE").is_some();
     builder
         .manage(service)
+        .manage(credentials)
         .manage(workbench::Transfers::default())
         .manage(workbench::Integration::default())
         .invoke_handler(move |invoke| {
@@ -307,16 +316,12 @@ fn main() -> ExitCode {
         return vibe_ssh_cli::main();
     }
     // ponytail: a Keychain prompt blocks one runtime worker; move to spawn_blocking if it stalls.
-    let service = Service::new(
-        default_home(),
-        Box::new(|host| {
-            let secret = get_generic_password(KEYCHAIN, &host.id).ok()?;
-            String::from_utf8(secret).ok()
-        }),
-    );
+    let credentials = Credentials::open();
+    let source = credentials.clone();
+    let service = Service::new(default_home(), Box::new(move |host| source.get(&host.id)));
     let quitting = service.clone();
     let menu_service = service.clone();
-    commands(tauri::Builder::default(), service.clone())
+    commands(tauri::Builder::default(), service.clone(), credentials)
         .menu(|app| {
             // macOS's predefined Quit terminates directly; use a normal menu action
             // so Cmd+Q goes through our task-aware confirmation as well.
@@ -432,9 +437,13 @@ mod tests {
         std::fs::create_dir(&home).unwrap();
         // No secret source: this test never touches the Keychain.
         let service = Service::new(home, Box::new(|_| None));
-        let app = commands(mock_builder(), service.clone())
-            .build(mock_context(noop_assets()))
-            .unwrap();
+        let app = commands(
+            mock_builder(),
+            service.clone(),
+            super::Credentials::default(),
+        )
+        .build(mock_context(noop_assets()))
+        .unwrap();
         let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .unwrap();
