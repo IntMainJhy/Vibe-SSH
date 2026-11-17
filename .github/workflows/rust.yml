@@ -9,14 +9,15 @@ permissions:
 
 jobs:
   verify:
-    # macOS only for now: the service uses Unix sockets and the end-to-end test uses the system sshd.
+    # macOS only for now: the service uses Unix sockets and the end-to-end tests use the system sshd.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # The desktop crate embeds the built frontend at compile time.
@@ -24,4 +25,37 @@ jobs:
         working-directory: apps/desktop
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - name: cargo test
+        run: |
+          set -o pipefail
+          cargo test --workspace --locked --no-fail-fast 2>&1 | tee test.log
+      # Job logs need repository admin rights; annotations can be read by anyone.
+      - name: Report failing tests as annotations
+        if: failure()
+        run: |
+          python3 - <<'EOF'
+          import os, re
+          if not os.path.exists("test.log"):
+              raise SystemExit
+          log = open("test.log", errors="replace").read()
+          blocks = re.findall(r"^---- (.+?) stdout ----\n(.*?)(?=^---- |^failures:|\Z)", log, flags=re.S | re.M)
+          blocks = blocks or [("cargo test", "\n".join(log.splitlines()[-60:]))]
+          encode = lambda text: text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          for name, body in blocks[:10]:
+              title = encode(name).replace(":", "%3A").replace(",", "%2C")
+              print(f"::error title={title}::{encode(body.strip()[:3500])}")
+          EOF
+
+  minimum-rust:
+    # The oldest toolchain Cargo.toml promises to build with.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci && npm run build
+        working-directory: apps/desktop
+      - run: cargo check --workspace --all-targets --locked
