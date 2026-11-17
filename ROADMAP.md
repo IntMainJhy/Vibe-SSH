@@ -20,7 +20,8 @@ This is a directional roadmap, not a release-date commitment. Source code and [i
 
 ## Next priorities
 
-- [ ] Complete M3 native-window replay and clean-system installation/update/uninstall acceptance.
+- [ ] Complete clean-system installation/update/uninstall acceptance.
+- [x] Complete M3 native-window replay for directory comparison and retained output/restart outcomes.
 - [ ] Verify independent agent-led deployment and recovery against acceptance scenarios.
 - [ ] Strengthen project synchronization policies before adding an explicit apply operation.
 - [ ] Extend task history to transfer/deployment records and full logs with explicit retention semantics.

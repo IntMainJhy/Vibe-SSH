@@ -110,7 +110,7 @@ Validation records cover temporary OpenSSH servers and an isolated Debian 13 VM:
 
 Preview 5 adds read-only directory comparison and bounded task/output history. Each history stream retains at most 64 KiB of raw tail; it is not a full audit log. The CLI provides `diff` and `history list/get`, with personal history hidden from agents. See [ADR 0006](docs/adr/0006-directory-diff-preview.md) and [ADR 0007](docs/adr/0007-task-history.md) for selection, budgets and storage semantics.
 
-Native host setup, verified fingerprints, Chinese terminal input, transfers, editing, takeover/return and quit protection have been exercised through the real window. An encrypted-key passphrase survived restart in an isolated real macOS Keychain. Additional M3 window replay hit ScreenCaptureKit -3811 and is not counted as a native-click pass. Clean-system installation, Developer ID/notarization, independent agent deployment, SSH-agent authentication, jump hosts, port forwarding and other desktop platforms remain outstanding.
+Native host setup, verified fingerprints, Chinese terminal input, transfers, editing, takeover/return and quit protection have been exercised through the real window. An encrypted-key passphrase survived restart in an isolated real macOS Keychain. M3 native replay also passed directory selection, selected-content comparison and history streams/restart outcomes after an intermittent ScreenCaptureKit capture error was resolved. Clean-system installation, Developer ID/notarization, independent agent deployment, SSH-agent authentication, jump hosts, port forwarding and other desktop platforms remain outstanding.
 
 See the [implementation and evidence log](docs/06-development-and-status.md), [roadmap](ROADMAP.md) and [release notes](CHANGELOG.md).
 
