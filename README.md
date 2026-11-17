@@ -6,8 +6,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="docs/assets/license-mit.svg" alt="MIT License" width="115" height="28" /></a>
-  <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview&style=flat-square&color=2563eb" alt="Latest preview release" width="221" height="28" /></a>
-  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main" alt="Verify workflow status" width="153" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="docs/assets/release-downloads.svg" alt="Download releases" width="184" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="docs/assets/ci-status.svg" alt="View live CI status" width="153" height="28" /></a>
   <a href="docs/installation.en.md"><img src="docs/assets/platform-macos.svg" alt="macOS desktop" width="148" height="28" /></a>
 </p>
 

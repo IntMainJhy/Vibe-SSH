@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="153" height="28" viewBox="0 0 153 28" role="img" aria-labelledby="ci-title">
+  <title id="ci-title">CI: View live status</title>
+  <rect width="42" height="28" fill="#555"/>
+  <rect x="42" width="111" height="28" fill="#2563eb"/>
+  <g fill="#fff" font-family="Verdana, Geneva, 'DejaVu Sans', sans-serif" font-size="15" text-anchor="middle">
+    <text x="21" y="20">CI</text>
+    <text x="97.5" y="20">View status</text>
+  </g>
+</svg>

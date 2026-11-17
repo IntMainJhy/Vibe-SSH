@@ -10,7 +10,7 @@ To export again, load the SVG in a browser and render it to a PNG canvas at the 
 
 ## Static badges
 
-[platform-macos.svg](platform-macos.svg) and [license-mit.svg](license-mit.svg) are project-owned badges for the supported desktop platform and the root MIT license. Keeping these fixed values in the repository avoids third-party image-proxy failures. The release badge remains live through Shields; the CI badge uses GitHub's official workflow status image.
+[platform-macos.svg](platform-macos.svg), [license-mit.svg](license-mit.svg), [release-downloads.svg](release-downloads.svg) and [ci-status.svg](ci-status.svg) are project-owned badges served from the repository, avoiding third-party image-proxy failures. The release and CI badges are navigation links: the latest version and live workflow results appear on their linked GitHub pages. Their images do not embed a version or a passing/failing status.
 
 ## Application screenshots
 
