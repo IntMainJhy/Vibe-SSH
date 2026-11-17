@@ -6,7 +6,7 @@ Vibe-SSH is an open-source macOS SSH/SFTP client for people and external AI agen
 
 Keep the English README and Chinese README aligned on features, platform support and preview limits. Link detailed evidence rather than copying engineering history into the introduction. Do not market an unreleased working-tree feature as part of a download.
 
-README badge URLs use literal `&` query separators inside quoted image attributes for compatibility with both hosts. AtomGit's image proxy was observed to preserve `&amp;` in parameter names, changing the release/CI labels and styles. Keep those badges live; the fixed macOS badge uses a [repository SVG](../assets/platform-macos.svg) to avoid proxy failures. Check both hosts' rendered badges after changing these URLs.
+README badge URLs use literal `&` query separators inside quoted image attributes for compatibility with both hosts. AtomGit's image proxy was observed to preserve `&amp;` in parameter names, changing labels and styles. Keep the release badge live and use GitHub's official workflow status image for CI. The fixed [macOS](../assets/platform-macos.svg) and [MIT](../assets/license-mit.svg) badges use repository SVGs to avoid proxy failures. Check both hosts' rendered badges after changing these URLs.
 
 ## GitHub About fields
 

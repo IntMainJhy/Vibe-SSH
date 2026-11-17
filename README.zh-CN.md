@@ -5,9 +5,9 @@
 <h3 align="center">为你和外部 AI 打造的 SSH 工作空间</h3>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563eb?style=flat-square" alt="MIT 开源协议" width="115" height="28" /></a>
+  <a href="LICENSE"><img src="docs/assets/license-mit.svg" alt="MIT 开源协议" width="115" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview&style=flat-square&color=2563eb" alt="最新预览版" width="221" height="28" /></a>
-  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/IntMainJhy/Vibe-SSH/rust.yml?branch=main&label=verify&style=flat-square" alt="Verify 工作流状态" width="129" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main" alt="Verify 工作流状态" width="153" height="28" /></a>
   <a href="docs/installation.md"><img src="docs/assets/platform-macos.svg" alt="macOS 桌面客户端" width="148" height="28" /></a>
 </p>
 

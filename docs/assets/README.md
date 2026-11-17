@@ -8,9 +8,9 @@ The white tile, graphite connection segments, cobalt light and subtle terminal/s
 
 To export again, load the SVG in a browser and render it to a PNG canvas at the dimensions above. Use system sans-serif fonts with PingFang SC or Microsoft YaHei for Chinese. Check text, shadows and clipping in the PNG, then keep the README image paths aligned in both languages.
 
-## Platform badge
+## Static badges
 
-[platform-macos.svg](platform-macos.svg) is a project-owned static badge for the supported desktop platform. Keeping it in the repository avoids third-party image-proxy failures for this fixed value. Release and CI badges remain live.
+[platform-macos.svg](platform-macos.svg) and [license-mit.svg](license-mit.svg) are project-owned badges for the supported desktop platform and the root MIT license. Keeping these fixed values in the repository avoids third-party image-proxy failures. The release badge remains live through Shields; the CI badge uses GitHub's official workflow status image.
 
 ## Application screenshots
 

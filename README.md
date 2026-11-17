@@ -5,9 +5,9 @@
 <h3 align="center">The SSH workspace for you and your AI.</h3>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563eb?style=flat-square" alt="MIT License" width="115" height="28" /></a>
+  <a href="LICENSE"><img src="docs/assets/license-mit.svg" alt="MIT License" width="115" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="https://img.shields.io/github/v/release/IntMainJhy/Vibe-SSH?include_prereleases&label=preview&style=flat-square&color=2563eb" alt="Latest preview release" width="221" height="28" /></a>
-  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/IntMainJhy/Vibe-SSH/rust.yml?branch=main&label=verify&style=flat-square" alt="Verify workflow status" width="129" height="28" /></a>
+  <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml/badge.svg?branch=main" alt="Verify workflow status" width="153" height="28" /></a>
   <a href="docs/installation.en.md"><img src="docs/assets/platform-macos.svg" alt="macOS desktop" width="148" height="28" /></a>
 </p>
 
