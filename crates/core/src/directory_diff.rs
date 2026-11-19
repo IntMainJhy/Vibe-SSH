@@ -4,6 +4,33 @@ use crate::diff::{self, DEPTH, ENTRIES, FILE_BYTES, HASH_BYTES, PATH_BYTES};
 use sha2::{Digest, Sha256};
 use vibe_ssh_protocol::{DiffEntry, DiffPreview, Manifest, ManifestEntry};
 
+pub(super) struct RemoteVersion {
+    pub(super) digest: String,
+    pub(super) attrs: FileAttributes,
+}
+
+pub struct DiffApplyPlan {
+    pub(super) space: String,
+    pub(super) root: String,
+    pub(super) generation: String,
+    pub(super) files: Vec<DiffChange>,
+}
+
+pub(super) struct DiffChange {
+    pub(super) path: String,
+    pub(super) size: u64,
+    pub(super) digest: String,
+    pub(super) previous: Option<RemoteVersion>,
+}
+
+impl DiffApplyPlan {
+    pub fn entries(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.files
+            .iter()
+            .map(|file| (file.path.as_str(), file.previous.is_some()))
+    }
+}
+
 impl Service {
     pub async fn diff(
         &self,
@@ -12,10 +39,38 @@ impl Service {
         manifest: Manifest,
         agent: bool,
     ) -> Result<DiffPreview> {
+        Ok(self
+            .compare_diff(id, remote, manifest, agent, false)
+            .await?
+            .0)
+    }
+
+    pub async fn review_diff(
+        &self,
+        id: &str,
+        remote: &str,
+        manifest: Manifest,
+    ) -> Result<(DiffPreview, Option<DiffApplyPlan>)> {
+        self.compare_diff(id, remote, manifest, false, true).await
+    }
+
+    async fn compare_diff(
+        &self,
+        id: &str,
+        remote: &str,
+        manifest: Manifest,
+        agent: bool,
+        review: bool,
+    ) -> Result<(DiffPreview, Option<DiffApplyPlan>)> {
         path_valid(remote)?;
         diff::validate(&manifest)?;
         let rules = diff::rules(&manifest.excludes)?;
-        let space = self.find_space(id, agent)?;
+        let space = self.remote_read_space(id, agent)?;
+        let generation = if review {
+            space.generation(By::Human(id)).await.ok()
+        } else {
+            None
+        };
         let _operation = space.file_operation.try_lock().map_err(|_| {
             Error::new(ErrorCode::ResourceLimit, "该空间已有文件操作，请稍后比较。")
         })?;
@@ -150,9 +205,11 @@ impl Service {
             local.keys().chain(entries.keys()).cloned().collect();
         let mut budget = HASH_BYTES;
         let mut result = Vec::new();
+        let mut changes = Vec::new();
         for path in paths {
             let left = local.remove(&path);
             let right = entries.remove(&path);
+            let mut previous = None;
             let status =
                 if diff::excluded(&path, &rules) || left.as_ref().is_some_and(|e| e.excluded) {
                     "excluded"
@@ -166,14 +223,17 @@ impl Service {
                                 && r.size.is_some_and(|s| s <= FILE_BYTES && s <= budget) =>
                         {
                             match remote_digest(&sftp, &root, &path, &mut budget).await? {
-                                Some(digest)
-                                    if l.digest
-                                        .as_ref()
-                                        .is_some_and(|d| d.eq_ignore_ascii_case(&digest)) =>
+                                Some(version)
+                                    if l.digest.as_ref().is_some_and(|d| {
+                                        d.eq_ignore_ascii_case(&version.digest)
+                                    }) =>
                                 {
                                     "same"
                                 }
-                                Some(_) => "changed",
+                                Some(version) => {
+                                    previous = Some(version);
+                                    "changed"
+                                }
                                 None => "unverified",
                             }
                         }
@@ -183,6 +243,19 @@ impl Service {
                         _ => "unverified",
                     }
                 };
+            if generation.is_some()
+                && !truncated
+                && (status == "local_only" || (status == "changed" && sftp.editable))
+                && let Some(entry) = &left
+                && let (Some(size), Some(digest)) = (entry.size, &entry.digest)
+            {
+                changes.push(DiffChange {
+                    path: path.clone(),
+                    size,
+                    digest: digest.clone(),
+                    previous,
+                });
+            }
             result.push(DiffEntry {
                 path,
                 local_size: left.and_then(|e| e.size),
@@ -190,25 +263,30 @@ impl Service {
                 status: status.into(),
             });
         }
-        Ok(DiffPreview {
-            remote: root,
-            entries: result,
-            truncated,
-        })
+        let plan = generation
+            .filter(|_| root.starts_with('/') && !changes.is_empty())
+            .map(|generation| DiffApplyPlan {
+                space: id.into(),
+                root: root.clone(),
+                generation,
+                files: changes,
+            });
+        Ok((
+            DiffPreview {
+                remote: root,
+                entries: result,
+                truncated,
+            },
+            plan,
+        ))
     }
 }
-fn same(a: &FileAttributes, b: &FileAttributes) -> bool {
-    a.file_type().is_file()
-        && b.file_type().is_file()
-        && (a.size, a.mtime, a.permissions, a.uid, a.gid)
-            == (b.size, b.mtime, b.permissions, b.uid, b.gid)
-}
-async fn remote_digest(
+pub(super) async fn remote_digest(
     sftp: &FileSession,
     root: &str,
     path: &str,
     budget: &mut u64,
-) -> Result<Option<String>> {
+) -> Result<Option<RemoteVersion>> {
     let mut full = root.trim_end_matches('/').to_owned();
     let parts: Vec<_> = path.split('/').collect();
     for part in &parts[..parts.len() - 1] {
@@ -247,7 +325,7 @@ async fn remote_digest(
         .handle;
     let result = async {
         let opened = sftp.fstat(&handle).await.map_err(sftp_error)?.attrs;
-        if !same(&before, &opened) {
+        if !same_file_version(&before, &opened) {
             return err(ErrorCode::FileChanged, "remote file changed while opening");
         }
         let mut hash = Sha256::new();
@@ -278,16 +356,19 @@ async fn remote_digest(
             }
             hash.update(data);
         }
-        if !same(
+        if !same_file_version(
             &opened,
             &sftp.fstat(&handle).await.map_err(sftp_error)?.attrs,
-        ) || !same(&opened, &sftp.lstat(&full).await.map_err(sftp_error)?.attrs)
+        ) || !same_file_version(&opened, &sftp.lstat(&full).await.map_err(sftp_error)?.attrs)
             || opened.size != Some(count)
         {
             return err(ErrorCode::FileChanged, "remote file changed while reading");
         }
         *budget -= count;
-        Ok(Some(format!("{:x}", hash.finalize())))
+        Ok(Some(RemoteVersion {
+            digest: format!("{:x}", hash.finalize()),
+            attrs: opened,
+        }))
     }
     .await;
     let closed = sftp.close(handle).await.map_err(sftp_error);

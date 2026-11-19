@@ -1,13 +1,91 @@
 mod support;
 
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use support::Fixture;
+use tokio::io::AsyncWriteExt;
 use vibe_ssh_core::{By, Error, ErrorCode};
 use vibe_ssh_protocol::{JobStatus, Owner, Reason};
 
 fn code<T>(result: Result<T, Error>) -> ErrorCode {
     result.err().expect("the operation should be refused").code
+}
+
+#[tokio::test]
+async fn disabling_and_reenabling_during_authentication_rejects_the_pending_open()
+-> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let service = &fixture.service;
+    fixture
+        .stats
+        .pause_authentication
+        .store(true, Ordering::SeqCst);
+    let opening = service.open("fixture", "pending space", "test", Owner::Agent);
+    let toggle = async {
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            fixture.stats.authentication_started.notified(),
+        )
+        .await?;
+        let mut hosts = service.load_hosts()?;
+        hosts[0].agent_access = false;
+        service.save_hosts(&hosts).await?;
+        hosts[0].agent_access = true;
+        service.save_hosts(&hosts).await?;
+        fixture
+            .stats
+            .pause_authentication
+            .store(false, Ordering::SeqCst);
+        fixture.stats.continue_authentication.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (opened, toggled) = tokio::join!(opening, toggle);
+    toggled?;
+    assert_eq!(code(opened), ErrorCode::HostNotAuthorized);
+    assert!(service.spaces(true).await.is_empty());
+    assert!(fixture.agent().await.is_ok());
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_save_preserves_access_but_revocation_blocks_upload_eof() -> anyhow::Result<()> {
+    let fixture = Fixture::start().await?;
+    let service = &fixture.service;
+    let (space, lease) = fixture.agent().await?;
+    let by = By::Lease(&lease);
+    let mut hosts = service.load_hosts()?;
+    hosts[0].agent_access = false;
+    let blocked = fixture.home.path().join("hosts.json.tmp");
+    std::fs::create_dir(&blocked)?;
+    assert_eq!(code(service.save_hosts(&hosts).await), ErrorCode::Internal);
+    assert!(service.load_hosts()?[0].agent_access);
+    assert_eq!(
+        service.space(&space, true).await?.control.lease.as_deref(),
+        Some(lease.as_str())
+    );
+    assert_eq!(
+        fixture.exec(&lease, "ok").await?.status,
+        JobStatus::Succeeded
+    );
+    std::fs::remove_dir(blocked)?;
+
+    let (mut sender, receiver) = tokio::io::duplex(512);
+    let upload = service.put(by, receiver, "/srv/app");
+    let revoke = async {
+        sender.write_u32(4).await?;
+        sender.write_all(b"test").await?;
+        fixture.expect_received(b"test").await;
+        service.save_hosts(&hosts).await?;
+        sender.write_u32(0).await?;
+        Ok::<_, anyhow::Error>(())
+    };
+    let (job, revoked) = tokio::join!(upload, revoke);
+    revoked?;
+    let ended = service.job_settled(&job?, 2_000, 8192, true).await?;
+    assert_eq!(ended.status, JobStatus::Failed);
+    assert_eq!(ended.reason, Some(Reason::UploadIncomplete));
+    assert_eq!(fixture.count(&fixture.stats.upload_eofs), 0);
+    Ok(())
 }
 
 #[tokio::test]

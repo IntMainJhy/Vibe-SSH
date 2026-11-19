@@ -16,6 +16,8 @@ type Sample = {
   disk_available: number;
   uptime_s: number;
   load: number[];
+  mounts?: { path: string; total: number; used: number; available: number }[];
+  mounts_truncated?: boolean;
 };
 const percent = (part: number, total: number) =>
   total > 0 ? Math.max(0, Math.min(100, (part / total) * 100)) : null;
@@ -253,6 +255,12 @@ export function Resources({ space }: { space: string }) {
           </dd>
         </div>
       </dl>
+      {!!sample?.mounts?.length && <section className="cloud-panel mount-panel" aria-labelledby="mount-title">
+        <div className="cloud-panel-heading"><h2 id="mount-title">磁盘挂载点</h2><span>{sample.mounts.length}{sample.mounts_truncated ? "+" : ""} 项</span></div>
+        <div className="server-table-scroll"><table className="server-table"><thead><tr><th>挂载位置</th><th>已用 / 总量</th><th>可用</th></tr></thead><tbody>
+          {sample.mounts.map((mount, index) => <tr key={`${mount.path}:${index}`}><td><code>{mount.path}</code></td><td>{bytes(mount.used)} / {bytes(mount.total)}</td><td>{bytes(mount.available)}</td></tr>)}
+        </tbody></table></div>
+      </section>}
       <p className="resource-note">
         <Icon name="clock" size={14} />
         每轮约 1 秒采样，间隔 5 秒刷新；离开此页暂停后续采样。

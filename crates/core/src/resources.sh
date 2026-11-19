@@ -11,3 +11,4 @@ load=$(awk '{printf "[%s,%s,%s]",$1,$2,$3}' /proc/loadavg) || exit
 uptime=$(awk '{printf "%.0f",$1}' /proc/uptime) || exit
 cores=$(awk '/^processor/ {n++} END {print n+0}' /proc/cpuinfo) || exit
 printf '{"cpu_percent":%s,"cores":%s,"uptime_s":%s,"load":%s,%s,%s}\n' "$cpu" "$cores" "$uptime" "$load" "$memory" "$storage"
+df -k -x tmpfs -x devtmpfs --output=size,used,avail,target 2>/dev/null | awk 'NR>=2 && NR<=66'

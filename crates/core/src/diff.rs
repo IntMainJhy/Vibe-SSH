@@ -189,43 +189,54 @@ pub fn select(root: &Path, manifest: &Manifest, selected: &[String]) -> Result<M
         if entry.size.is_none_or(|n| n > FILE_BYTES || n > budget) {
             continue;
         }
-        let mut current = root.to_path_buf();
-        for part in path.split('/').take(path.split('/').count() - 1) {
-            current.push(part);
-            if !fs::symlink_metadata(&current)?.is_dir() {
-                return Err(invalid("selection ancestor changed or became a link"));
-            }
-        }
-        let full = root.join(path);
-        let before = fs::symlink_metadata(&full)?;
-        if !before.is_file() {
-            return Err(invalid("selected file changed or became a link"));
-        }
-        if before.len() > FILE_BYTES || before.len() > budget {
+        let Some(data) = read_selected(root, path, budget.min(FILE_BYTES))? else {
             continue;
-        }
-        // O_NOFOLLOW refuses a link substituted at the final component.
-        let mut file = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&full)?;
-        let opened = file.metadata()?;
-        if !same(&before, &opened) {
-            return Err(invalid("selected file changed while opening"));
-        }
-        let mut data = Vec::new();
-        (&mut file).take(before.len()).read_to_end(&mut data)?;
-        if !same(&opened, &file.metadata()?)
-            || !same(&opened, &fs::symlink_metadata(&full)?)
-            || data.len() as u64 != opened.len()
-        {
-            return Err(invalid("selected file changed while reading"));
-        }
+        };
         budget -= data.len() as u64;
         entry.size = Some(data.len() as u64);
         entry.digest = Some(format!("{:x}", Sha256::digest(&data)));
     }
     Ok(result)
+}
+
+pub(crate) fn read_selected(root: &Path, path: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+    if !relative(path) || !fs::symlink_metadata(root)?.is_dir() {
+        return Err(invalid("selection root or path changed"));
+    }
+    let mut current = root.to_path_buf();
+    if let Some((parent, _)) = path.rsplit_once('/') {
+        for part in parent.split('/') {
+            current.push(part);
+            if !fs::symlink_metadata(&current)?.is_dir() {
+                return Err(invalid("selection ancestor changed or became a link"));
+            }
+        }
+    }
+    let full = root.join(path);
+    let before = fs::symlink_metadata(&full)?;
+    if !before.is_file() {
+        return Err(invalid("selected file changed or became a link"));
+    }
+    if before.len() > limit {
+        return Ok(None);
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&full)?;
+    let opened = file.metadata()?;
+    if !same(&before, &opened) {
+        return Err(invalid("selected file changed while opening"));
+    }
+    let mut data = Vec::new();
+    (&file).take(before.len()).read_to_end(&mut data)?;
+    if !same(&opened, &file.metadata()?)
+        || !same(&opened, &fs::symlink_metadata(&full)?)
+        || data.len() as u64 != opened.len()
+    {
+        return Err(invalid("selected file changed while reading"));
+    }
+    Ok(Some(data))
 }
 fn same(a: &fs::Metadata, b: &fs::Metadata) -> bool {
     a.is_file()

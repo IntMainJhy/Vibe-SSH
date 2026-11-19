@@ -117,11 +117,34 @@ async fn dispatch<A: AsyncRead + Unpin>(
     Ok(match call {
         Call::Status => service.status(),
         Call::Hosts => json!(service.hosts(true)?),
+        Call::FilesList {
+            space,
+            remote,
+            limit,
+        } => json!(service.agent_files(&space, &remote, limit).await?),
+        Call::FilesRead {
+            space,
+            remote,
+            max_bytes,
+        } => json!(service.agent_text(&space, &remote, max_bytes).await?),
+        Call::Resources { space } => json!(service.resources(&space, true).await?),
         Call::HistoryList { offset, limit } => {
             json!(service.history_list(offset, limit, true).await?)
         }
         Call::HistoryGet { record, tail_bytes } => {
             json!(service.history_get(&record, tail_bytes, true).await?)
+        }
+        Call::HistoryLog {
+            record,
+            stream,
+            offset,
+            limit,
+        } => {
+            json!(
+                service
+                    .history_log(&record, stream, offset, limit, true)
+                    .await?
+            )
         }
         Call::Diff {
             space,
@@ -138,6 +161,29 @@ async fn dispatch<A: AsyncRead + Unpin>(
             json!({ "closed": true })
         }
         Call::SpaceHandoff { lease, reason } => json!(service.handoff(&lease, &reason).await?),
+        Call::DeploymentStart { lease, steps } => {
+            json!({"deployment": service.deployment_start(&lease, steps).await?})
+        }
+        Call::DeploymentStep {
+            lease,
+            deployment,
+            index,
+            action,
+            wait_ms,
+        } => {
+            json!(
+                service
+                    .deployment_step(&lease, &deployment, index, action, wait_ms, upload)
+                    .await?
+            )
+        }
+        Call::DeploymentStop {
+            lease,
+            deployment,
+            reason,
+        } => {
+            json!({"stopped": service.deployment_stop(&lease, &deployment, &reason).await?})
+        }
         Call::Run {
             lease,
             command,
@@ -198,7 +244,17 @@ pub async fn request(home: &Path, call: Call, archive: Option<Archive>) -> Resul
     };
     let mut stream = UnixStream::connect(socket_path(home))
         .await
-        .map_err(unavailable)?;
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::PermissionDenied => Error::new(
+                ErrorCode::ServiceUnavailable,
+                "access to the Vibe-SSH local socket was denied; check the Agent's sandbox or local socket permissions",
+            ),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => unavailable(error),
+            _ => Error::new(
+                ErrorCode::ServiceUnavailable,
+                format!("could not connect to the Vibe-SSH local socket: {error}"),
+            ),
+        })?;
     let mut line = serde_json::to_vec(&Request {
         v: PROTOCOL_VERSION,
         call,

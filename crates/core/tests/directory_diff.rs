@@ -1,6 +1,10 @@
 #[path = "../../cli/tests/support/sshd.rs"]
 mod sshd;
-use std::{fs, os::unix::fs::symlink};
+use std::{
+    fs,
+    os::unix::fs::{PermissionsExt, symlink},
+    sync::atomic::AtomicBool,
+};
 use vibe_ssh_core::{Service, diff};
 use vibe_ssh_protocol::Owner;
 
@@ -11,6 +15,7 @@ async fn preview_reads_only_selected_regular_files_and_keeps_personal_spaces_pri
     fs::create_dir(service.home()).unwrap();
     service
         .save_hosts(&[sshd.host("test", "id_plain", true)])
+        .await
         .unwrap();
     let agent = service
         .open("test", "diff", "test", Owner::Agent)
@@ -45,7 +50,6 @@ async fn preview_reads_only_selected_regular_files_and_keeps_personal_spaces_pri
     fs::create_dir(remote.join("conflict")).unwrap();
     let metadata = diff::scan(&local, &[]).unwrap();
     // Metadata may be inspected, but ignored and unselected content must never be opened.
-    use std::os::unix::fs::PermissionsExt;
     for root in [&local, &remote] {
         fs::set_permissions(root.join("未选择.txt"), fs::Permissions::from_mode(0o0)).unwrap();
         fs::set_permissions(root.join(".env"), fs::Permissions::from_mode(0o0)).unwrap();
@@ -109,6 +113,138 @@ async fn preview_reads_only_selected_regular_files_and_keeps_personal_spaces_pri
             .diff(&agent, remote.to_str().unwrap(), forged, true)
             .await
             .is_err()
+    );
+}
+
+#[tokio::test]
+async fn apply_review_checks_both_sides_backs_up_and_requires_current_human_control() {
+    let sshd = sshd::Sshd::start();
+    let service = Service::new(sshd.path("service"), Box::new(|_| None));
+    fs::create_dir(service.home()).unwrap();
+    service
+        .save_hosts(&[sshd.host("review", "id_plain", true)])
+        .await
+        .unwrap();
+    let space = service
+        .open("review", "review", "fixture", Owner::Agent)
+        .await
+        .unwrap()
+        .space;
+    service.takeover(&space).await.unwrap();
+    let project = sshd.path("发布项目");
+    let remote = sshd.path("服务器目录");
+    fs::create_dir_all(project.join("assets/子目录")).unwrap();
+    fs::create_dir(&remote).unwrap();
+    fs::write(project.join("assets/子目录/new.bin"), [1, 0, 255]).unwrap();
+    fs::write(project.join("replace.bin"), [2, 0, 254]).unwrap();
+    fs::write(project.join("unselected"), "skip").unwrap();
+    fs::write(project.join(".env"), "fixture only").unwrap();
+    fs::write(remote.join("replace.bin"), [3, 0, 253]).unwrap();
+    fs::write(remote.join("remote-only"), "keep").unwrap();
+    fs::set_permissions(
+        remote.join("replace.bin"),
+        fs::Permissions::from_mode(0o640),
+    )
+    .unwrap();
+    let selected = || {
+        let manifest = diff::scan(&project, &[]).unwrap();
+        diff::select(
+            &project,
+            &manifest,
+            &["assets/子目录/new.bin".into(), "replace.bin".into()],
+        )
+        .unwrap()
+    };
+    let plan = || async {
+        service
+            .review_diff(&space, remote.to_str().unwrap(), selected())
+            .await
+            .unwrap()
+            .1
+            .unwrap()
+    };
+    let cancel = AtomicBool::new(false);
+    let old = plan().await;
+    service.release(&space).await.unwrap();
+    assert!(
+        service
+            .review_diff(&space, remote.to_str().unwrap(), selected())
+            .await
+            .unwrap()
+            .1
+            .is_none()
+    );
+    service.takeover(&space).await.unwrap();
+    assert_eq!(
+        service
+            .apply_diff(old, project.clone(), &cancel)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        vibe_ssh_protocol::ErrorCode::StaleLease
+    );
+
+    let old = plan().await;
+    fs::write(project.join("replace.bin"), [4, 0, 252]).unwrap();
+    assert!(
+        service
+            .apply_diff(old, project.clone(), &cancel)
+            .await
+            .is_err()
+    );
+    assert!(!remote.join("assets").exists());
+
+    let old = plan().await;
+    fs::write(remote.join("replace.bin"), [5, 0, 251]).unwrap();
+    assert!(
+        service
+            .apply_diff(old, project.clone(), &cancel)
+            .await
+            .is_err()
+    );
+    assert!(!remote.join("assets").exists());
+    assert_eq!(fs::read(remote.join("replace.bin")).unwrap(), [5, 0, 251]);
+
+    let approved = plan().await;
+    assert_eq!(
+        approved.entries().collect::<Vec<_>>(),
+        [("assets/子目录/new.bin", false), ("replace.bin", true)]
+    );
+    let receipt = service
+        .apply_diff(approved, project.clone(), &cancel)
+        .await
+        .unwrap();
+    let receipt = serde_json::to_value(receipt).unwrap();
+    assert!(receipt["stopped"].is_null(), "{receipt}");
+    assert_eq!(receipt["applied"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fs::read(remote.join("assets/子目录/new.bin")).unwrap(),
+        [1, 0, 255]
+    );
+    assert_eq!(fs::read(remote.join("replace.bin")).unwrap(), [4, 0, 252]);
+    assert_eq!(
+        fs::metadata(remote.join("replace.bin"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+    assert_eq!(
+        fs::read(receipt["applied"][1]["backup"].as_str().unwrap()).unwrap(),
+        [5, 0, 251]
+    );
+    assert_eq!(fs::read(remote.join("remote-only")).unwrap(), b"keep");
+    assert!(!remote.join("unselected").exists());
+    assert!(!remote.join(".env").exists());
+    assert!(
+        service
+            .review_diff(&space, remote.to_str().unwrap(), selected())
+            .await
+            .unwrap()
+            .1
+            .is_none()
     );
 }
 

@@ -12,9 +12,15 @@ type Entry = {
 };
 type Manifest = { entries: Entry[]; excludes: string[]; truncated: boolean };
 type Source = { id: string; name: string; manifest: Manifest };
+type Review = { revision: string; paths: { path: string; replaces: boolean }[] };
+type ApplyResult = {
+  applied: { path: string; backup: string | null }[];
+  stopped: { path: string; code: string; message: string } | null;
+};
 type Preview = {
   remote: string;
   truncated: boolean;
+  apply?: Review;
   entries: {
     path: string;
     local_size: number | null;
@@ -38,11 +44,15 @@ export function DirectoryDiff({
   server,
   space,
   remote,
+  writable,
+  onApplied,
   onClose,
 }: {
   server: string;
   space: string;
   remote: string;
+  writable: boolean;
+  onApplied: () => void;
   onClose: () => void;
 }) {
   const [source, setSource] = useState<Source>();
@@ -51,7 +61,10 @@ export function DirectoryDiff({
   const [applied, setApplied] = useState("");
   const [preview, setPreview] = useState<Preview>();
   const [compared, setCompared] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [result, setResult] = useState<ApplyResult>();
   const [busy, setBusy] = useState(false);
+  const applying = useRef(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const id = useRef<string | undefined>(undefined);
@@ -69,10 +82,12 @@ export function DirectoryDiff({
       .filter(Boolean);
   const invalidate = () => {
     setCompared(false);
+    setConfirm(false);
     setPreview((old) =>
       old
         ? {
             ...old,
+            apply: undefined,
             entries: old.entries.map((e) =>
               ["same", "changed"].includes(e.status)
                 ? { ...e, status: "unverified" }
@@ -96,6 +111,7 @@ export function DirectoryDiff({
         setSource(next);
         setApplied(rules);
         setPreview(undefined);
+        setResult(undefined);
         setSelected([]);
         setCompared(false);
         setPreview(
@@ -162,6 +178,31 @@ export function DirectoryDiff({
       setBusy(false);
     }
   };
+  const changedRules = rules !== applied;
+  const review = compared && writable && !changedRules ? preview?.apply : undefined;
+  const apply = async () => {
+    if (!source || !review || !confirm || busy || applying.current) return;
+    applying.current = true;
+    invalidate();
+    setResult(undefined);
+    setError("");
+    setBusy(true);
+    try {
+      const receipt = await call<ApplyResult>("apply_directory", {
+        id: source.id,
+        revision: review.revision,
+        space,
+      });
+      setPreview(undefined);
+      setResult(receipt);
+      onApplied();
+    } catch (e) {
+      setError(explain(e));
+    } finally {
+      applying.current = false;
+      setBusy(false);
+    }
+  };
   const selectable =
     source?.manifest.entries
       .filter(
@@ -187,7 +228,6 @@ export function DirectoryDiff({
             : "unsupported",
     })) ??
     [];
-  const changedRules = rules !== applied;
   return (
     <Modal
       titleId="diff-title"
@@ -198,7 +238,7 @@ export function DirectoryDiff({
       <header className="diff-heading">
         <div>
           <h2 id="diff-title">比较目录</h2>
-          <p>{server} · 只读预览</p>
+          <p>{server} · {writable ? "预览并应用" : "只读预览"}</p>
         </div>
         <button
           className="icon-button"
@@ -222,7 +262,7 @@ export function DirectoryDiff({
           <div>
             <span>服务器目录</span>
             <strong title={remote}>{remote}</strong>
-            <small>不会上传、覆盖或删除文件</small>
+            <small>比较只读取所选文件，应用前需确认清单。</small>
           </div>
         </div>
         <details className="diff-rules">
@@ -244,6 +284,7 @@ export function DirectoryDiff({
             disabled={busy}
             onChange={(e) => {
               setRules(e.target.value);
+              invalidate();
               setPreview(undefined);
               setSelected([]);
             }}
@@ -263,6 +304,24 @@ export function DirectoryDiff({
           <p className="form-error" role="alert">
             {error}
           </p>
+        )}
+        {result && (
+          <section className="diff-receipt" aria-label="目录应用结果">
+            <p role="status">已应用 {result.applied.length} 个文件</p>
+            <ul>
+              {result.applied.map(({ path, backup }) => (
+                <li key={path}>
+                  <code>{path}</code>
+                  {backup && <small>服务器备份 <code>{backup}</code></small>}
+                </li>
+              ))}
+            </ul>
+            {result.stopped && (
+              <p className="form-error" role="alert">
+                在 <code>{result.stopped.path}</code> 停止。{result.stopped.message}
+              </p>
+            )}
+          </section>
         )}
         {source ? (
           <>
@@ -293,12 +352,14 @@ export function DirectoryDiff({
               />
             </div>
             <p className="diff-stage" role="status">
-              {busy
+              {applying.current
+                ? "正在核对并应用所选更改…"
+                : busy
                 ? "正在列出目录或校验所选文件…"
                 : changedRules
                   ? "规则有改动，请应用后重新选择文件。"
                   : compared
-                    ? "内容比较已完成；未校验项不能判定为内容相同。"
+                    ? "所选文件比较完成。未校验的文件仍需检查。"
                     : "仅列出元数据，尚未比较内容。勾选的普通文件才会读取内容。"}
             </p>
             <div className="diff-table-wrap">
@@ -400,13 +461,37 @@ export function DirectoryDiff({
           关闭
         </button>
         <button
-          className="primary"
+          className={review ? undefined : "primary"}
           disabled={busy || !source || !selected.length || changedRules}
           onClick={() => void compare()}
         >
-          {busy ? "比较中…" : "比较所选文件"}
+          比较所选文件
         </button>
+        {review && (
+          <button className="primary" disabled={busy} onClick={() => setConfirm(true)}>
+            检查并应用 {review.paths.length} 项
+          </button>
+        )}
       </footer>
+      {confirm && review && (
+        <Modal titleId="diff-confirm-title" onClose={() => setConfirm(false)}>
+          <h2 id="diff-confirm-title">确认应用目录更改</h2>
+          <p>目标目录 <code>{preview?.remote}</code></p>
+          <p>将逐个应用下列文件，替换时会在服务器上保留原文件的备份。</p>
+          <ul className="diff-review-list">
+            {review.paths.map(({ path, replaces }) => (
+              <li key={path}>
+                <code>{path}</code>
+                <small>{replaces ? "替换并备份" : "新增"}</small>
+              </li>
+            ))}
+          </ul>
+          <div className="form-actions">
+            <button autoFocus onClick={() => setConfirm(false)}>返回比较</button>
+            <button className="primary" onClick={() => void apply()}>确认应用</button>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

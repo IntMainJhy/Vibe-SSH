@@ -912,12 +912,13 @@ kbd {
   margin-top: 14px;
 }
 .terminal-tabs {
+  --terminal-toolbar: #222222;
   display: flex;
   align-items: stretch;
   flex: none;
   gap: 4px;
   padding: 10px 10px 0;
-  background: #222222;
+  background: var(--terminal-toolbar);
   overflow-x: auto;
   min-height: 42px;
   scrollbar-width: thin;
@@ -980,6 +981,9 @@ kbd {
   align-items: center;
   gap: 8px;
 }
+.terminal-tools > div {
+  flex-wrap: wrap;
+}
 .terminal-tools button {
   background: transparent;
   color: #b9b9b9;
@@ -1006,11 +1010,46 @@ kbd {
   flex: 1;
   min-height: 0;
 }
+.terminal-find {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: #d0d0d0;
+  background: #1b1b1b;
+  border-bottom: 1px solid #343434;
+  font-size: 12px;
+}
+.terminal-find input {
+  flex: 1;
+  min-width: 100px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid #515151;
+  border-radius: 5px;
+  background: #242424;
+  color: #f4f4f4;
+}
+.terminal-find button {
+  min-height: 28px;
+  padding: 3px 6px;
+  background: transparent;
+  color: inherit;
+  border-color: #515151;
+  font-size: inherit;
+}
+.terminal-find button:hover:not(:disabled) {
+  background: #373737;
+  color: #fff;
+}
 .term {
   flex: 1;
   min-height: 0;
   background: var(--slate);
-  padding: 18px 10px 8px 20px;
+  /* FitAddon measures this element; keep the inset outside its measured area. */
+  margin: 14px 12px 8px 16px;
   overflow: hidden;
 }
 .term .xterm {
@@ -2147,6 +2186,17 @@ meter::-moz-meter-bar {
   accent-color: var(--ink);
   margin-top: 8px;
 }
+.transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.transfer-actions button {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
 .transfer-error {
   margin-top: 8px;
   white-space: normal;
@@ -2155,10 +2205,6 @@ meter::-moz-meter-bar {
   -webkit-user-select: text;
 }
 @media (max-width: 1000px) {
-  .file-table th:nth-child(4),
-  .file-table td:nth-child(4) {
-    display: none;
-  }
   .file-filter {
     max-width: 140px;
   }
@@ -2196,10 +2242,6 @@ meter::-moz-meter-bar {
     gap: 8px;
   }
   .file-options .grow {
-    display: none;
-  }
-  .file-table th:nth-child(3),
-  .file-table td:nth-child(3) {
     display: none;
   }
   .transfer-tray {

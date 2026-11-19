@@ -12,7 +12,7 @@ English and Chinese are welcome.
 | Report a security problem | [Private security reporting](SECURITY.md) |
 | See upcoming work | [Roadmap](ROADMAP.md) and [implementation status](docs/06-development-and-status.md) |
 
-Before reporting a bug, note the preview version, macOS version, Apple silicon/Intel architecture and reproduction steps. Remove credentials and sensitive host information from attachments.
+Before reporting a bug, note the exact build version, macOS version, Apple silicon/Intel architecture and reproduction steps. Remove credentials and sensitive host information from attachments.
 
 If an agent cannot connect, check that Vibe-SSH is open and the host is enabled for agent access. If `vibe-ssh` is not on PATH, try `"$HOME/.local/bin/vibe-ssh" skill`. Do not replace host trust records or repeatedly replay a failed deployment as a troubleshooting shortcut.
 

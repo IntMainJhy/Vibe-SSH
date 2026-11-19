@@ -1,5 +1,7 @@
 import type { Host, Job, Snapshot, Space } from "./api";
 import { Icon, type IconName } from "./Icon";
+import connectionArt from "./assets/connection-art.webp";
+import serverArt from "./assets/server-art.webp";
 
 export type HomeView = "overview" | "servers" | "sessions" | "history";
 export const STATUS: Record<Job["status"], string> = {
@@ -96,7 +98,7 @@ export function Workbench({
     return [];
   });
   return (
-    <div className="cloud-workbench" data-overview={overview}>
+    <div className="cloud-workbench" data-overview={overview} tabIndex={0}>
       {overview && (
         <>
           <section className="overview-metrics" aria-label="工作空间概览">
@@ -104,25 +106,21 @@ export function Workbench({
               icon="server"
               label="已配置服务器"
               value={data.hosts.length}
-              detail="连接资料由你管理"
             />
             <OverviewMetric
               icon="terminal"
               label="已连接会话"
               value={connected.length}
-              detail={`${data.spaces.length} 个会话空间`}
             />
             <OverviewMetric
               icon="activity"
               label="运行中任务"
               value={running}
-              detail="含交互终端"
             />
             <OverviewMetric
               icon="link"
               label="允许 Agent 接入"
               value={data.hosts.filter((h) => h.agent_access).length}
-              detail="按服务器单独授权"
             />
           </section>
           <div className="overview-middle">
@@ -131,6 +129,7 @@ export function Workbench({
               aria-labelledby="focus-title"
               data-empty={!featured}
             >
+              {featured && <img className="focus-art" src={connectionArt} alt="" width={480} height={320} />}
               <div className="focus-top">
                 <span>
                   <span className="focus-led" />
@@ -139,49 +138,19 @@ export function Workbench({
                 <Icon name="terminal" size={20} />
               </div>
               <div className="focus-body">
-                <span className="focus-eyebrow">
-                  {featured ? connectionState(featured) : "连接你的服务器"}
-                </span>
                 <h2
                   id="focus-title"
                   title={featured ? spaceName(featured) : undefined}
                 >
                   {featured ? spaceName(featured) : "从一台服务器开始"}
                 </h2>
-                <p>
-                  {featured
-                    ? `${featured.host_name} · ${featured.origin === "human" ? "个人空间" : featured.actor}`
-                    : "终端、文件和资源状态，在同一个工作空间。"}
-                </p>
+                <p>{featured ? `${featured.host_name} · ${connectionState(featured)}` : "终端、文件和资源状态，在同一个工作空间。"}</p>
               </div>
               {featured ? (
                 <>
-                  <div className="focus-stats">
-                    <div>
-                      <span>当前任务</span>
-                      <strong>
-                        {featured.jobs.length}
-                        <small>项</small>
-                      </strong>
-                    </div>
-                    <div>
-                      <span>运行中</span>
-                      <strong>
-                        {
-                          featured.jobs.filter((j) => j.status === "running")
-                            .length
-                        }
-                        <small>项</small>
-                      </strong>
-                    </div>
-                    <div>
-                      <span>控制权</span>
-                      <strong className="focus-owner">
-                        {featured.control.owner === "human"
-                          ? "由你操作"
-                          : "Agent"}
-                      </strong>
-                    </div>
+                  <div className="focus-shortcuts" aria-label="当前会话快捷操作">
+                    <button onClick={() => onSelect(featured.space, "files")}><Icon name="folder" size={15} /> 文件</button>
+                    <button onClick={() => onSelect(featured.space, "resources")}><Icon name="activity" size={15} /> 监控</button>
                   </div>
                   <button
                     className="focus-action"
@@ -218,41 +187,6 @@ export function Workbench({
                 compact
               />
             </section>
-            <section
-              className="cloud-panel quick-actions"
-              aria-labelledby="quick-title"
-            >
-              <h2 id="quick-title">快捷操作</h2>
-              <QuickAction
-                icon="plus"
-                title="添加服务器"
-                detail="配置连接与验证指纹"
-                onClick={() => onEdit("new")}
-              />
-              {featured ? (
-                <>
-                  <QuickAction
-                    icon="folder"
-                    title="管理文件"
-                    detail="浏览、传输与编辑"
-                    onClick={() => onSelect(featured.space, "files")}
-                  />
-                  <QuickAction
-                    icon="activity"
-                    title="资源监控"
-                    detail="CPU、内存与存储"
-                    onClick={() => onSelect(featured.space, "resources")}
-                  />
-                </>
-              ) : (
-                <QuickAction
-                  icon="server"
-                  title="服务器列表"
-                  detail="选择服务器打开终端"
-                  onClick={() => onView("servers")}
-                />
-              )}
-            </section>
           </div>
         </>
       )}
@@ -266,13 +200,14 @@ export function Workbench({
           <section
             className="cloud-panel host-directory"
             aria-label="服务器列表"
+            data-has-hosts={hosts.length > 0}
           >
             <PanelHeading
               title={searching ? "匹配的服务器" : "服务器"}
               detail={`${hosts.length} 台`}
             />
             {hosts.length ? (
-              <div className="server-table-scroll">
+              <div className="server-table-scroll" tabIndex={0}>
                 <table className="server-table cloud-server-table">
                   <thead>
                     <tr>
@@ -285,8 +220,9 @@ export function Workbench({
                     </tr>
                   </thead>
                   <tbody>
-                    {hosts.map((h) => (
-                      <tr key={h.id}>
+                    {hosts.map((h) => {
+                      const existing = connected.find(s => s.origin === "human" && s.host === h.id);
+                      return <tr key={h.id}>
                         <td>
                           <div className="server-name">
                             <span className="server-tile">
@@ -320,31 +256,35 @@ export function Workbench({
                         </td>
                         <td className="row-actions">
                           <button
-                            aria-label={`连接 ${h.name}`}
+                            aria-label={`${existing ? "进入会话" : "连接"} ${h.name}`}
                             disabled={pending.includes(`connect:${h.id}`)}
-                            onClick={() => void onConnect(h)}
+                            onClick={() => existing ? onSelect(existing.space) : void onConnect(h)}
                           >
                             <Icon name="terminal" size={14} />
                             {pending.includes(`connect:${h.id}`)
                               ? "连接中…"
-                              : "连接"}
+                              : existing ? "进入会话" : "连接"}
                           </button>
+                          {existing && <button className="icon-button" aria-label={`新建连接 ${h.name}`} title="新建独立连接" disabled={pending.includes(`connect:${h.id}`)} onClick={() => void onConnect(h)}><Icon name="plus" size={16} /></button>}
                           <button
                             className="icon-button"
+                            title="服务器设置"
                             aria-label={`编辑 ${h.name}`}
                             onClick={() => onEdit(h)}
                           >
                             <Icon name="settings" size={16} />
                           </button>
                         </td>
-                      </tr>
-                    ))}
+                      </tr>;
+                    })}
                   </tbody>
                 </table>
               </div>
             ) : (
               <div className="cloud-empty">
-                <Icon name={searching ? "search" : "server"} size={28} />
+                {searching ? <Icon name="search" size={28} /> : (
+                  <img className="server-empty-art" src={serverArt} alt="" width={104} height={104} />
+                )}
                 <h3>
                   {searching ? "没有匹配的服务器" : "添加你的第一台服务器"}
                 </h3>
@@ -431,12 +371,10 @@ function OverviewMetric({
   icon,
   label,
   value,
-  detail,
 }: {
   icon: IconName;
   label: string;
   value: number;
-  detail: string;
 }) {
   return (
     <article className="overview-metric">
@@ -445,9 +383,8 @@ function OverviewMetric({
       </span>
       <div>
         <h2>{label}</h2>
-        <strong>{value.toString().padStart(2, "0")}</strong>
+        <strong>{value}</strong>
       </div>
-      <p>{detail}</p>
     </article>
   );
 }
@@ -472,30 +409,6 @@ function PanelHeading({
         <span>{detail}</span>
       )}
     </div>
-  );
-}
-function QuickAction({
-  icon,
-  title,
-  detail,
-  onClick,
-}: {
-  icon: IconName;
-  title: string;
-  detail: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className="quick-action" onClick={onClick}>
-      <span className="quick-icon">
-        <Icon name={icon} size={16} />
-      </span>
-      <span>
-        <strong>{title}</strong>
-        <small>{detail}</small>
-      </span>
-      <Icon name="chevron" size={13} />
-    </button>
   );
 }
 function SessionList({

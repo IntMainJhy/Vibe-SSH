@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 /** Native modal semantics provide keyboard trapping, Escape and focus restoration. */
 export function Modal({
@@ -7,12 +7,14 @@ export function Modal({
   busy = false,
   children,
   className = "",
+  initialFocus,
 }: {
   titleId: string;
   onClose: () => void;
   busy?: boolean;
   children: ReactNode;
   className?: string;
+  initialFocus?: RefObject<HTMLElement | null>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const close = useRef(onClose);
@@ -21,11 +23,12 @@ export function Modal({
     const node = dialog.current!;
     const previous = document.activeElement as HTMLElement | null;
     node.showModal();
+    initialFocus?.current?.focus();
     return () => {
       node.close();
       previous?.focus();
     };
-  }, []);
+  }, [initialFocus]);
   return (
     <dialog
       ref={dialog}

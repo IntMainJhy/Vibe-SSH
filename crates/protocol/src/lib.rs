@@ -10,6 +10,39 @@ pub const MAX_INPUT: usize = 32_768;
 pub const MAX_READ: usize = 1_048_576;
 pub const DEFAULT_READ: usize = 8_192;
 pub const MAX_WAIT_MS: u64 = 120_000;
+pub const DEFAULT_FILE_ENTRIES: usize = 100;
+pub const MAX_FILE_ENTRIES: usize = 1000;
+pub const MAX_TEXT_BYTES: usize = 65_536;
+pub const READ_CAPABILITIES: [&str; 3] = ["files_list", "files_read", "resources"];
+pub const MAX_DEPLOYMENT_STEPS: usize = 12;
+pub const MAX_LOG_READ: usize = 65536;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResourceSample {
+    pub cpu_percent: Option<f64>,
+    pub cores: u32,
+    pub uptime_s: u64,
+    pub load: [f64; 3],
+    pub memory_total: u64,
+    pub memory_available: u64,
+    pub swap_total: u64,
+    pub swap_free: u64,
+    pub disk_total: u64,
+    pub disk_used: u64,
+    pub disk_available: u64,
+    #[serde(default)]
+    pub mounts: Vec<MountUsage>,
+    #[serde(default)]
+    pub mounts_truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MountUsage {
+    pub path: String,
+    pub total: u64,
+    pub used: u64,
+    pub available: u64,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ManifestEntry {
@@ -56,6 +89,103 @@ pub enum JobStatus {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileTransferKind {
+    Upload,
+    Download,
+    UploadFolder,
+    DownloadFolder,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileTransferRecord {
+    pub kind: FileTransferKind,
+    pub remote: String,
+    pub size: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentKind {
+    Run,
+    Put,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeploymentStepSpec {
+    pub name: String,
+    pub kind: DeploymentKind,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DeploymentAction {
+    Run {
+        command: String,
+        cwd: Option<String>,
+    },
+    Put {
+        remote_dir: String,
+    },
+}
+
+impl DeploymentAction {
+    pub fn kind(&self) -> DeploymentKind {
+        match self {
+            Self::Run { .. } => DeploymentKind::Run,
+            Self::Put { .. } => DeploymentKind::Put,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentStepStatus {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Unknown,
+    Skipped,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeploymentStepRecord {
+    #[serde(flatten)]
+    pub plan: DeploymentStepSpec,
+    pub status: DeploymentStepStatus,
+    pub job_record: Option<String>,
+    pub exit_code: Option<u32>,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct LogArchive {
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
+    pub issue: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LogPage {
+    pub text: String,
+    pub offset: u64,
+    pub next_offset: u64,
+    pub archived_bytes: u64,
+    pub observed_bytes: u64,
+    pub complete: bool,
+    pub invalid_utf8: bool,
+    pub issue: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HistoryRecord {
     pub record: String,
@@ -76,6 +206,12 @@ pub struct HistoryRecord {
     pub exit_signal: Option<String>,
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<FileTransferRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deployment: Vec<DeploymentStepRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<LogArchive>,
 }
 #[derive(Debug, Serialize)]
 pub struct HistoryPage {
@@ -224,6 +360,19 @@ pub struct Request {
 pub enum Call {
     Status,
     Hosts,
+    FilesList {
+        space: String,
+        remote: String,
+        limit: usize,
+    },
+    FilesRead {
+        space: String,
+        remote: String,
+        max_bytes: usize,
+    },
+    Resources {
+        space: String,
+    },
     HistoryList {
         offset: usize,
         limit: usize,
@@ -231,6 +380,12 @@ pub enum Call {
     HistoryGet {
         record: String,
         tail_bytes: usize,
+    },
+    HistoryLog {
+        record: String,
+        stream: LogStream,
+        offset: u64,
+        limit: usize,
     },
     Diff {
         space: String,
@@ -252,6 +407,22 @@ pub enum Call {
     },
     SpaceHandoff {
         lease: String,
+        reason: String,
+    },
+    DeploymentStart {
+        lease: String,
+        steps: Vec<DeploymentStepSpec>,
+    },
+    DeploymentStep {
+        lease: String,
+        deployment: String,
+        index: usize,
+        action: DeploymentAction,
+        wait_ms: u64,
+    },
+    DeploymentStop {
+        lease: String,
+        deployment: String,
         reason: String,
     },
     Run {

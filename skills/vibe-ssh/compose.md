@@ -13,6 +13,12 @@ Always pass the same project name (`-p APP`). Without it Compose names the
 project after the directory, and every release would start a second copy of
 the app instead of replacing the first.
 
+After probing, put the known upload, validation, start and verification steps
+in a `vibe-ssh batch --lease LEASE` plan to keep one deployment record. Use
+`history get` with the returned deployment ID to find each task and its logs.
+If a build outlasts the wait, follow the existing job before arranging the
+remaining steps.
+
 ## 1. Probe before changing anything
 
 ```bash

@@ -4,7 +4,9 @@ use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use serde_json::{Value, json};
 use vibe_ssh_core::{Archive, Error, Service, default_home, request, serve, skill};
-use vibe_ssh_protocol::{Call, DEFAULT_READ};
+use vibe_ssh_protocol::{Call, DEFAULT_FILE_ENTRIES, DEFAULT_READ, LogStream};
+
+mod batch;
 
 #[derive(Parser)]
 #[command(
@@ -29,6 +31,11 @@ enum Command {
     Status,
     /// Hosts the user enabled for agents.
     Hosts,
+    /// List remote directory metadata or read one small text file.
+    #[command(subcommand)]
+    Files(FilesCommand),
+    /// Sample CPU, memory, load and root filesystem on a Linux host.
+    Resources { space: String },
     /// Read-only retained tasks. Never restores or replays a command.
     #[command(subcommand)]
     History(HistoryCommand),
@@ -46,6 +53,8 @@ enum Command {
     /// Task spaces: one per goal, each with its own SSH connection.
     #[command(subcommand)]
     Space(SpaceCommand),
+    /// Run a validated sequence of commands and uploads in one visible task space.
+    Batch(batch::Batch),
     /// Run a command in a space. With no command, the script is read from stdin.
     Run {
         #[arg(long)]
@@ -91,6 +100,9 @@ struct Wait {
     /// Bytes of trailing output to return per stream.
     #[arg(long, default_value_t = DEFAULT_READ)]
     tail: usize,
+    /// Return compact job JSON for deployment loops. The full job is available via job get.
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Subcommand)]
@@ -105,6 +117,35 @@ enum HistoryCommand {
         record: String,
         #[arg(long,default_value_t=DEFAULT_READ)]
         tail: usize,
+    },
+    /// Read a page of retained raw-log text, starting at a byte offset.
+    Log {
+        record: String,
+        #[arg(long, default_value = "stdout", value_parser = ["stdout", "stderr"])]
+        stream: String,
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+        #[arg(long, default_value_t = DEFAULT_READ)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum FilesCommand {
+    /// List one level of a remote directory (up to 1000 entries).
+    List {
+        space: String,
+        #[arg(default_value = ".")]
+        remote: String,
+        #[arg(long, default_value_t = DEFAULT_FILE_ENTRIES)]
+        limit: usize,
+    },
+    /// Read one regular UTF-8 file (up to 65536 bytes).
+    Read {
+        space: String,
+        remote: String,
+        #[arg(long, default_value_t = DEFAULT_READ)]
+        max_bytes: usize,
     },
 }
 
@@ -209,6 +250,7 @@ fn stdin() -> anyhow::Result<String> {
 async fn run(command: Command) -> anyhow::Result<u8> {
     let home = default_home();
     let mut archive = None;
+    let mut summary = false;
     let call = match command {
         Command::Skill { topic } => {
             print!("{}", skill::guide(topic.as_deref())?);
@@ -228,13 +270,48 @@ async fn run(command: Command) -> anyhow::Result<u8> {
             return Ok(0);
         }
         Command::Status => Call::Status,
+        Command::Batch(batch) => return Ok(batch.run(&home).await?),
         Command::Hosts => Call::Hosts,
+        Command::Files(FilesCommand::List {
+            space,
+            remote,
+            limit,
+        }) => Call::FilesList {
+            space,
+            remote,
+            limit,
+        },
+        Command::Files(FilesCommand::Read {
+            space,
+            remote,
+            max_bytes,
+        }) => Call::FilesRead {
+            space,
+            remote,
+            max_bytes,
+        },
+        Command::Resources { space } => Call::Resources { space },
         Command::History(HistoryCommand::List { offset, limit }) => {
             Call::HistoryList { offset, limit }
         }
         Command::History(HistoryCommand::Get { record, tail }) => Call::HistoryGet {
             record,
             tail_bytes: tail,
+        },
+        Command::History(HistoryCommand::Log {
+            record,
+            stream,
+            offset,
+            limit,
+        }) => Call::HistoryLog {
+            record,
+            stream: if stream == "stderr" {
+                LogStream::Stderr
+            } else {
+                LogStream::Stdout
+            },
+            offset,
+            limit,
         },
         Command::Diff {
             space,
@@ -266,18 +343,21 @@ async fn run(command: Command) -> anyhow::Result<u8> {
             pty,
             wait,
             command,
-        } => Call::Run {
-            lease,
-            command: Some(if command.is_empty() {
-                stdin()?
-            } else {
-                command.join(" ")
-            }),
-            cwd,
-            pty,
-            wait_ms: wait.wait.saturating_mul(1000),
-            tail_bytes: wait.tail,
-        },
+        } => {
+            summary = wait.summary;
+            Call::Run {
+                lease,
+                command: Some(if command.is_empty() {
+                    stdin()?
+                } else {
+                    command.join(" ")
+                }),
+                cwd,
+                pty,
+                wait_ms: wait.wait.saturating_mul(1000),
+                tail_bytes: wait.tail,
+            }
+        }
         Command::Put {
             lease,
             local,
@@ -285,6 +365,7 @@ async fn run(command: Command) -> anyhow::Result<u8> {
             exclude,
             wait,
         } => {
+            summary = wait.summary;
             // tar runs here, in the agent's own process, with the agent's own file permissions.
             archive = Some(Archive::pack(&local, &exclude)?);
             Call::Put {
@@ -327,9 +408,30 @@ async fn run(command: Command) -> anyhow::Result<u8> {
         Command::Job(JobCommand::Interrupt { lease, job }) => Call::JobInterrupt { lease, job },
     };
     let reply = request(&home, call, archive).await?;
-    println!("{}", serde_json::to_string_pretty(&reply)?);
+    if summary {
+        println!("{}", compact_job(&reply));
+    } else {
+        println!("{}", serde_json::to_string_pretty(&reply)?);
+    }
     Ok(match &reply["status"] {
         Value::String(status) if status == "failed" || status == "unknown" => 1,
         _ => 0,
+    })
+}
+
+fn compact_job(reply: &Value) -> Value {
+    json!({
+        "job": reply["job"],
+        "record": reply["record"],
+        "record_saved": reply["record_saved"],
+        "record_error": reply["record_error"],
+        "status": reply["status"],
+        "reason": reply["reason"],
+        "exit_code": reply["exit_code"],
+        "stdout": reply["stdout"],
+        "stderr": reply["stderr"],
+        "cursor": reply["cursor"],
+        "more": reply["more"],
+        "control": {"owner": reply["control"]["owner"]},
     })
 }

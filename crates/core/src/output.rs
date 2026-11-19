@@ -96,7 +96,7 @@ impl OutputLog {
 }
 
 /// Length of an incomplete UTF-8 sequence at the end of `bytes`.
-fn partial_suffix(bytes: &[u8]) -> usize {
+pub(crate) fn partial_suffix(bytes: &[u8]) -> usize {
     for back in 1..=bytes.len().min(3) {
         let byte = bytes[bytes.len() - back];
         if byte & 0xc0 == 0x80 {

@@ -8,15 +8,46 @@ use std::{
     },
 };
 use tauri::Manager;
-use vibe_ssh_core::{Directory, TextDocument, TextSaved, TransferProgress};
+use vibe_ssh_core::{
+    DiffApplyPlan, DiffApplyResult, Directory, TextDocument, TextSaved, TransferProgress,
+};
+use vibe_ssh_protocol::{FileTransferKind, FileTransferRecord};
+
+#[path = "downloads.rs"]
+pub mod downloads;
+#[path = "folder_transfers.rs"]
+pub mod folders;
+#[path = "uploads.rs"]
+pub mod uploads;
 
 #[derive(Default)]
-pub struct DiffSources(Mutex<BTreeMap<String, (PathBuf, vibe_ssh_protocol::Manifest)>>);
+pub struct DiffSources(Mutex<BTreeMap<String, DiffSource>>);
+
+struct DiffSource {
+    root: PathBuf,
+    manifest: vibe_ssh_protocol::Manifest,
+    review: Option<(String, DiffApplyPlan)>,
+    revision: String,
+}
+
+impl DiffSource {
+    fn new(root: PathBuf, manifest: vibe_ssh_protocol::Manifest) -> Self {
+        Self {
+            root,
+            manifest,
+            review: None,
+            revision: String::new(),
+        }
+    }
+}
 
 #[cfg(test)]
 impl DiffSources {
     pub fn fixture(&self, id: &str, path: PathBuf, manifest: vibe_ssh_protocol::Manifest) {
-        self.0.lock().unwrap().insert(id.into(), (path, manifest));
+        self.0
+            .lock()
+            .unwrap()
+            .insert(id.into(), DiffSource::new(path, manifest));
     }
 }
 
@@ -47,7 +78,7 @@ pub async fn choose_diff(
         let key = sources.keys().next().unwrap().clone();
         sources.remove(&key);
     }
-    sources.insert(id, (path, manifest));
+    sources.insert(id, DiffSource::new(path, manifest));
     Ok(Some(result))
 }
 #[tauri::command]
@@ -60,26 +91,27 @@ pub async fn rescan_diff(
     id: String,
     excludes: Vec<String>,
 ) -> Reply<vibe_ssh_protocol::Manifest> {
-    let root = state
-        .0
-        .lock()
-        .unwrap()
-        .get(&id)
-        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
-        .0
-        .clone();
+    let revision = uuid::Uuid::new_v4().to_string();
+    let root = {
+        let mut sources = state.0.lock().unwrap();
+        let source = sources
+            .get_mut(&id)
+            .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?;
+        source.review = None;
+        source.revision.clone_from(&revision);
+        source.root.clone()
+    };
     let manifest =
         tauri::async_runtime::spawn_blocking(move || vibe_ssh_core::diff::scan(&root, &excludes))
             .await
             .map_err(|_| invalid("目录读取任务未完成，请重试。"))?
             .map_err(fail)?;
-    state
-        .0
-        .lock()
-        .unwrap()
+    let mut sources = state.0.lock().unwrap();
+    sources
         .get_mut(&id)
-        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
-        .1 = manifest.clone();
+        .filter(|source| source.revision == revision)
+        .ok_or_else(|| invalid("项目目录已变化，请重新选择。"))?
+        .manifest = manifest.clone();
     Ok(manifest)
 }
 #[tauri::command]
@@ -90,24 +122,70 @@ pub async fn compare_directory(
     selected: Vec<String>,
     space: String,
     remote: String,
-) -> Reply<vibe_ssh_protocol::DiffPreview> {
-    let (root, manifest) = state
-        .0
-        .lock()
-        .unwrap()
-        .get(&id)
-        .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?
-        .clone();
+) -> Reply<Value> {
+    let revision = uuid::Uuid::new_v4().to_string();
+    let (root, manifest) = {
+        let mut sources = state.0.lock().unwrap();
+        let source = sources
+            .get_mut(&id)
+            .ok_or_else(|| invalid("项目目录已过期，请重新选择。"))?;
+        source.review = None;
+        source.revision.clone_from(&revision);
+        (source.root.clone(), source.manifest.clone())
+    };
     let manifest = tauri::async_runtime::spawn_blocking(move || {
         vibe_ssh_core::diff::select(&root, &manifest, &selected)
     })
     .await
     .map_err(|_| invalid("文件校验任务未完成，请重试。"))?
     .map_err(fail)?;
-    kernel
-        .diff(&space, &remote, manifest, false)
+    let (preview, plan) = kernel
+        .review_diff(&space, &remote, manifest)
         .await
-        .map_err(fail)
+        .map_err(fail)?;
+    let mut response = json!(preview);
+    if let Some(plan) = plan {
+        let paths: Vec<_> = plan
+            .entries()
+            .map(|(path, replaces)| json!({"path":path,"replaces":replaces}))
+            .collect();
+        let mut sources = state.0.lock().unwrap();
+        let source = sources
+            .get_mut(&id)
+            .filter(|source| source.revision == revision)
+            .ok_or_else(|| invalid("比较结果已过期，请重新比较。"))?;
+        source.review = Some((space, plan));
+        response["apply"] = json!({"revision":revision,"paths":paths});
+    }
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn apply_directory(
+    kernel: Kernel<'_>,
+    state: State<'_, DiffSources>,
+    transfers: State<'_, Transfers>,
+    id: String,
+    revision: String,
+    space: String,
+) -> Reply<DiffApplyResult> {
+    let (_active, cancel) = start(&transfers, uuid::Uuid::new_v4().to_string(), &space)?;
+    let (root, plan) = {
+        let mut sources = state.0.lock().unwrap();
+        let source = sources
+            .get_mut(&id)
+            .filter(|source| source.revision == revision)
+            .filter(|source| {
+                source
+                    .review
+                    .as_ref()
+                    .is_some_and(|(target, _)| target == &space)
+            })
+            .ok_or_else(|| invalid("应用清单已失效，请重新比较。"))?;
+        let (_, plan) = source.review.take().expect("review checked");
+        (source.root.clone(), plan)
+    };
+    kernel.apply_diff(plan, root, &cancel).await.map_err(fail)
 }
 
 #[derive(Default)]
@@ -152,6 +230,26 @@ fn update<R: tauri::Runtime>(
     let _ = app.emit("file-transfer", json!({"id":id,"name":name,"direction":direction,"done":progress.done,"total":progress.total,"status":"running"}));
 }
 
+async fn observed_transfer<T>(
+    kernel: &Service,
+    space: &str,
+    kind: FileTransferKind,
+    remote: String,
+    size: Option<u64>,
+    operation: impl Future<Output = Reply<T>>,
+) -> Reply<T> {
+    let observation = kernel
+        .observe_transfer(space, FileTransferRecord { kind, remote, size })
+        .await;
+    let result = operation.await;
+    if let Some(observation) = observation {
+        kernel
+            .finish_transfer(observation, result.as_ref().err())
+            .await;
+    }
+    result
+}
+
 #[tauri::command]
 pub async fn files(kernel: Kernel<'_>, space: String, path: String) -> Reply<Directory> {
     kernel.files(&space, &path).await.map_err(fail)
@@ -178,8 +276,11 @@ pub fn forget_text(kernel: Kernel<'_>, space: String, revision: String) -> Reply
 }
 
 #[tauri::command]
-pub async fn resources(kernel: Kernel<'_>, space: String) -> Reply<Value> {
-    kernel.resources(&space).await.map_err(fail)
+pub async fn resources(
+    kernel: Kernel<'_>,
+    space: String,
+) -> Reply<vibe_ssh_protocol::ResourceSample> {
+    kernel.resources(&space, false).await.map_err(fail)
 }
 #[tauri::command]
 pub async fn file_action(
@@ -200,6 +301,7 @@ pub fn cancel_transfer(state: State<'_, Transfers>, id: String) {
         cancel.store(true, Ordering::Relaxed);
     }
 }
+
 #[tauri::command]
 pub async fn upload_files<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -209,7 +311,7 @@ pub async fn upload_files<R: tauri::Runtime>(
     directory: String,
     id: String,
 ) -> Reply<bool> {
-    let (_active, cancel) = start(&state, id.clone(), &space)?;
+    let (active, cancel) = start(&state, id.clone(), &space)?;
     let selected = rfd::AsyncFileDialog::new()
         .set_title("选择要上传的文件")
         .pick_files()
@@ -217,6 +319,15 @@ pub async fn upload_files<R: tauri::Runtime>(
     let Some(selected) = selected else {
         return Ok(false);
     };
+    if let [file] = selected.as_slice() {
+        let plan = kernel
+            .plan_upload(&space, &directory, file.path().to_path_buf())
+            .await
+            .map_err(fail)?;
+        uploads::create(kernel.home(), &active, &plan)?;
+        uploads::transfer(&app, &kernel, &space, &active, &plan, false, &cancel).await?;
+        return Ok(true);
+    }
     let mut last_event = std::time::Instant::now();
     for selected in selected {
         if cancel.load(Ordering::Relaxed) {
@@ -249,98 +360,33 @@ pub async fn upload_files<R: tauri::Runtime>(
         );
         // Throttle UI events; file data never crosses Tauri JSON IPC.
         let progress_time = std::sync::Mutex::new(last_event);
-        let result = kernel
-            .upload_file(
-                By::Human(&space),
-                &remote,
-                source,
-                metadata.len(),
-                &cancel,
-                |progress| {
-                    let mut time = progress_time.lock().unwrap();
-                    if time.elapsed().as_millis() >= 100 || progress.total == Some(progress.done) {
-                        update(&app, &id, name, "upload", progress);
-                        *time = std::time::Instant::now();
-                    }
-                },
-            )
-            .await;
+        let operation = kernel.upload_file(
+            By::Human(&space),
+            &remote,
+            source,
+            metadata.len(),
+            &cancel,
+            |progress| {
+                let mut time = progress_time.lock().unwrap();
+                if time.elapsed().as_millis() >= 100 || progress.total == Some(progress.done) {
+                    update(&app, &id, name, "upload", progress);
+                    *time = std::time::Instant::now();
+                }
+            },
+        );
+        observed_transfer(
+            &kernel,
+            &space,
+            FileTransferKind::Upload,
+            remote.clone(),
+            Some(metadata.len()),
+            async { operation.await.map_err(fail) },
+        )
+        .await?;
         last_event = std::time::Instant::now();
-        if let Err(error) = result {
-            return Err(fail(error));
-        }
     }
     Ok(true)
 }
-#[tauri::command]
-pub async fn download_file<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    kernel: Kernel<'_>,
-    state: State<'_, Transfers>,
-    space: String,
-    remote: String,
-    id: String,
-) -> Reply<bool> {
-    let (_active, cancel) = start(&state, id.clone(), &space)?;
-    let name = remote
-        .rsplit('/')
-        .next()
-        .ok_or_else(|| invalid("invalid path"))?;
-    let selected = rfd::AsyncFileDialog::new()
-        .set_title("保存下载文件")
-        .set_file_name(name)
-        .save_file()
-        .await;
-    let Some(selected) = selected else {
-        return Ok(false);
-    };
-    let path = selected.path();
-    let temporary =
-        path.with_file_name(format!(".vibe-download-{}", uuid::Uuid::new_v4().simple()));
-    let target = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temporary)
-        .await
-        .map_err(|e| invalid(&e.to_string()))?;
-    let progress_time = std::sync::Mutex::new(std::time::Instant::now());
-    update(
-        &app,
-        &id,
-        name,
-        "download",
-        TransferProgress {
-            done: 0,
-            total: None,
-        },
-    );
-    let result = kernel
-        .download_file(&space, &remote, target, &cancel, |progress| {
-            let mut time = progress_time.lock().unwrap();
-            if time.elapsed().as_millis() >= 100 || progress.total == Some(progress.done) {
-                update(&app, &id, name, "download", progress);
-                *time = std::time::Instant::now();
-            }
-        })
-        .await
-        .map_err(fail);
-    if let Err(error) = result {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(error);
-    }
-    if cancel.load(Ordering::Relaxed) {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(invalid("传输已取消"));
-    }
-    // The save dialog explicitly approves the destination. Atomic replacement preserves it on failure.
-    if let Err(error) = tokio::fs::rename(&temporary, path).await {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(invalid(&error.to_string()));
-    }
-    Ok(true)
-}
-
 /// Integration failures are reported without introducing an install button.
 pub fn configure<R: tauri::Runtime>(app: &tauri::App<R>, service: &Service) {
     let result = skill::install(

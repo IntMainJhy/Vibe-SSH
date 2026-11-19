@@ -4,7 +4,7 @@ Vibe-SSH is a macOS SSH client that external agents operate through Skills and a
 
 This is a directional roadmap, not a release-date commitment. Source code and [implementation evidence](docs/06-development-and-status.md) determine whether a capability is available.
 
-## Available in the preview line
+## Available in the macOS Beta
 
 - Manual hosts, fingerprint verification and per-host agent access.
 - Personal terminals and agent task spaces with separate SSH connections.
@@ -12,28 +12,41 @@ This is a directional roadmap, not a release-date commitment. Source code and [i
 - A macOS workspace with tabbed terminals, search and appearance controls.
 - SFTP operations and bounded UTF-8 editing with version checks and backups.
 - Linux resource monitoring while its page is open.
-- Read-only directory-diff preview with explicit content selections and ignore rules.
+- Directory comparison, ignore rules and reviewed application with version checks and backups.
 - Bounded durable command/output history, privacy filtering and honest restart outcomes.
 - Native core-flow acceptance and encrypted-key passphrase restart in an isolated real Keychain.
 - Version-matched Skill/CLI integration and Nginx and Compose reference flows.
-- Apple silicon and Intel macOS preview packages.
+- Apple silicon and Intel macOS Beta packages. Qualification on physical Intel hardware is pending.
 
 ## Next priorities
 
-- [ ] Complete clean-system installation/update/uninstall acceptance.
+- [x] Revoke live agent writes when host access is disabled or the host is removed.
+- [ ] Complete clean-system installation, update and uninstall acceptance on Apple silicon and physical Intel Macs (isolated Apple silicon profile and Rosetta checks passed).
 - [x] Complete M3 native-window replay for directory comparison and retained output/restart outcomes.
-- [ ] Verify independent agent-led deployment and recovery against acceptance scenarios.
-- [ ] Strengthen project synchronization policies before adding an explicit apply operation.
-- [ ] Extend task history to transfer/deployment records and full logs with explicit retention semantics.
+- [ ] Verify independent agent-led deployment and recovery (Codex static site passed; Claude Code model gateway unavailable).
+- [x] Add bounded agent file reads and Linux resource snapshots.
+- [x] Preview OpenSSH imports, authenticate with a local SSH agent, connect through verified jump hosts, and manage fixed or dynamic local forwarding.
+- [x] Add desktop remote TCP forwarding for loopback services.
+- [x] Batch Agent deployment steps and repeat the paired Codex static-site benchmark.
+- [x] Connect through unauthenticated HTTP CONNECT or SOCKS5 proxies.
+- [x] Add folder transfers, regular-file permission editing and per-mount usage.
+- [x] Pause and resume single-file downloads across restarts.
+- [x] Add terminal-buffer search and text export.
+- [x] Pause and resume single-file uploads across restarts.
+- [x] Resume folder uploads and downloads after validating the source tree and staged bytes.
+- [x] Review and apply selected directory changes with version checks and backups.
+- [x] Keep desktop upload and download outcomes in the task history.
+- [x] Retain Agent deployment plans, linked step results, and bounded raw-log archives.
+- [x] Add SFTP root navigation and keep the terminal prompt reachable when the window shrinks.
+- [ ] Repeat native file and folder transfer, recovery and log export checks on the release build.
 - [ ] Complete Developer ID signing and Apple notarization.
-- [ ] Extend compatibility and repeatable performance evidence without broad speedup claims.
+- [ ] Extend compatibility and performance coverage beyond the [paired Codex static-site deployment](docs/performance/2026-11-18-agent-deployment.md).
 
 ## Later exploration
 
-- SSH Agent authentication, jump hosts, proxies and port forwarding.
 - Additional deployment guides and server compatibility coverage.
 - Windows/Linux desktop packages after platform-specific design and testing.
 
 Built-in model inference, cloud credential hosting and multi-agent orchestration are outside the current scope.
 
-Technical acceptance is in [the delivery plan](docs/05-delivery-and-acceptance.md), with milestone-order corrections in [ADR 0002](docs/adr/0002-task-spaces-and-agent-neutrality.md). Discuss proposals in [Discussions](https://github.com/IntMainJhy/Vibe-SSH/discussions) or a feature request before expanding these boundaries.
+See the [stable release plan](docs/07-stable-release-plan.md) for sequencing and scope, and the [delivery plan](docs/05-delivery-and-acceptance.md) for acceptance criteria.

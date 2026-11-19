@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type ProxySettings = { kind: "http_connect" | "socks5"; address: string; port: number };
+
 export type Host = {
   id: string;
   name: string;
@@ -7,8 +9,17 @@ export type Host = {
   port: number;
   username: string;
   identity_file: string | null;
+  ssh_agent?: boolean;
+  jump_host?: string;
+  proxy?: ProxySettings;
   host_key_sha256: string;
   agent_access: boolean;
+};
+
+export type HostDraft = Pick<Host, "host" | "name" | "port" | "identity_file"> & {
+  username: string | null;
+  issues: string[];
+  routed: boolean;
 };
 
 export type JobStatus = "running" | "succeeded" | "failed" | "unknown";
@@ -73,6 +84,7 @@ const EXPLAIN: Record<string, string> = {
   HOST_KEY_MISMATCH:
     "服务器的指纹和你核对过的不一致，已停止连接。请确认服务器没有被替换，再到服务器设置里重新核对指纹。",
   AUTHENTICATION_FAILED: "登录被拒绝。请检查用户名、私钥或密码。",
+  HOST_NOT_AUTHORIZED: "此主机未开启 Agent 接入。",
   CONNECTION_FAILED: "连不上服务器。请检查地址、端口和网络。",
   CONTROL_REVOKED: "这个空间现在由 Agent 操作，接管后才能输入。",
   DELIVERY_UNKNOWN: "输入可能只发送了一部分，请先检查终端状态，不要重复发送。",

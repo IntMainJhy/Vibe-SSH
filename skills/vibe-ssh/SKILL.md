@@ -7,16 +7,15 @@ metadata:
 
 # vibe-ssh
 
-Before any server task, run:
+Read one version-matched guide for the task. For an Nginx static-site deployment,
+run `vibe-ssh skill static-site && vibe-ssh hosts` in the same tool call.
+For Compose use `vibe-ssh skill compose`; for other SSH tasks use `vibe-ssh skill`.
+The guide ends with a line starting `[vibe-ssh:skill] end of guide`. Read the
+missing lines if output is truncated.
 
-```bash
-vibe-ssh skill
-```
-
-and follow its output. It prints the usage guide that matches the installed
-version. The guide ends with a line starting `[vibe-ssh:skill] end of guide`;
-if that line is missing the output was truncated, so save it to a file and read
-the file in parts.
+For a known deployment, use `vibe-ssh batch` with one explicit plan for related
+commands and uploads. Each step is a separate application job. Inspect the step
+results before submitting anything else when the outcome is `stopped`.
 
 If `vibe-ssh` is not on PATH, run `"$HOME/.local/bin/vibe-ssh" skill`.
 Opening the installed Vibe-SSH app automatically configures the version-matched

@@ -7,6 +7,7 @@ import type { Host, Snapshot, Space } from "./api";
 const key = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8";
 
 let counter = 10;
+const mockForwards = new Map<string, { id: string; local_port: number; kind: string; target?: string; target_port?: number; remote_port?: number }[]>();
 const hosts: Host[] = [
   {
     id: "blog",
@@ -92,8 +93,19 @@ const output: Record<string, [string, string]> = {
 const bytes = (text: string) => Array.from(new TextEncoder().encode(text));
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const find = (id: string) => spaces.find((s) => s.space === id)!;
+const revoke = (host: string) => {
+  for (const space of spaces) {
+    if (space.host === host && space.origin === "agent" && space.control.owner === "agent")
+      space.control = { owner: "human", note: null };
+  }
+};
 
 const scenario = new URLSearchParams(location.search).get("scenario");
+if (scenario === "terminal-resize") {
+  output.j5[0] = Array.from({ length: 100 }, (_, i) =>
+    `Terminal history line ${String(i + 1).padStart(3, "0")}\r\n`,
+  ).join("") + "root@db:~# ";
+}
 if (scenario === "empty") {
   hosts.length = 0;
   spaces.length = 0;
@@ -157,6 +169,7 @@ const fileEntries = [
   },
 ];
 const fileTexts: Record<string, string> = {
+  "/etc/hostname": "vibe-sample\n",
   "/home/deploy/app/config/nginx.conf": "server {\n    listen 80;\n    server_name example.test;\n}\n",
   "/home/deploy/app/package.json": '{"name":"blog","scripts":{"build":"vite build"}}\n',
   "/home/deploy/app/README.md": "# Blog\n\nBuild with npm run build.\n",
@@ -167,8 +180,18 @@ const fileTexts: Record<string, string> = {
   "/home/deploy/.profile": 'export PATH="$HOME/.local/bin:$PATH"\n',
 };
 for (const [path, kind] of [
+  ["/etc", "directory"],
+  ["/etc/hostname", "file"],
   ["/home", "directory"],
   ["/home/deploy", "directory"],
+  ["/root", "directory"],
+  ["/root/.profile", "file"],
+  ["/root/projects", "directory"],
+  ["/srv", "directory"],
+  ["/tmp", "directory"],
+  ["/usr", "directory"],
+  ["/var", "directory"],
+  ["/var/log", "directory"],
   ["/home/deploy/app/config", "directory"],
   ["/home/deploy/app/src", "directory"],
   ["/home/deploy/releases/2026-11-17", "directory"],
@@ -236,6 +259,8 @@ const diffManifest = {
   ],
   truncated: false,
 };
+let diffReview: { revision: string; paths: { path: string; replaces: boolean }[] } | undefined;
+const deployedPaths = new Set<string>();
 mockIPC(
   async (command, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
@@ -277,44 +302,66 @@ mockIPC(
           manifest: structuredClone(diffManifest),
         };
       case "forget_diff":
+        diffReview = undefined;
         return;
       case "rescan_diff":
+        diffReview = undefined;
         if (args.excludes.some((s: string) => s.includes("/")))
           throw { message: "忽略规则不能包含 /。" };
         return {
           ...structuredClone(diffManifest),
           excludes: [...diffManifest.excludes, ...args.excludes],
         };
-      case "compare_directory":
+      case "compare_directory": {
+        diffReview = undefined;
         await sleep(150);
         if (scenario === "diff-error")
           throw { message: "比较期间服务器连接断开，请核实连接后重试。" };
+        const paths = ["README.md", "src/index.ts"]
+          .filter((path) => args.selected.includes(path) && !deployedPaths.has(path))
+          .map((path) => ({ path, replaces: path !== "README.md" }));
+        if (paths.length) diffReview = { revision: crypto.randomUUID(), paths };
         return {
           remote: args.remote,
           truncated: false,
+          apply: diffReview,
           entries: diffManifest.entries.map((e) => ({
             path: e.path,
             local_size: e.size,
-            remote_size: e.path === "README.md" ? null : e.size,
+            remote_size: e.path === "README.md" && !deployedPaths.has(e.path) ? null : e.size,
             status: e.excluded
               ? "excluded"
               : e.kind === "symlink"
                 ? "unsupported"
-                : e.path === "README.md"
+                : e.path === "README.md" && !deployedPaths.has(e.path)
                   ? "local_only"
                   : !args.selected.includes(e.path)
                     ? "unverified"
-                    : e.path === "src/index.ts"
+                    : e.path === "src/index.ts" && !deployedPaths.has(e.path)
                       ? "changed"
                       : "same",
           })),
         };
+      }
+      case "apply_directory": {
+        if (!diffReview || diffReview.revision !== args.revision)
+          throw { message: "应用清单已失效，请重新比较。" };
+        const { paths } = diffReview;
+        diffReview = undefined;
+        return {
+          applied: paths.map(({ path, replaces }) => {
+            deployedPaths.add(path);
+            return { path, backup: replaces ? "/srv/site/src/.vibe-backup-demo" : null };
+          }),
+          stopped: null,
+        };
+      }
       case "snapshot":
         if (scenario === "offline")
           throw { code: "SERVICE_UNAVAILABLE", message: "preview unavailable" };
         return structuredClone({
           status: {
-            version: "0.2.0-preview.5",
+            version: "0.2.0-beta.1",
             protocol_version: 2,
             instance: "preview",
           },
@@ -327,7 +374,7 @@ mockIPC(
         await sleep(scenario === "files-race" && args.path === "/home/deploy/app" ? 650 : 100);
         let path =
           args.path === "."
-            ? "/home/deploy"
+            ? scenario === "root-home" ? "/root" : "/home/deploy"
             : args.path.replace(/\/$/, "") || "/";
         if (scenario === "files-denied" && path === "/home/deploy/app/config")
           throw { message: "没有读取这个目录的权限。" };
@@ -344,7 +391,7 @@ mockIPC(
         return {
           path,
           entries: fileEntries.filter(
-            (e) => e.path.slice(0, e.path.lastIndexOf("/")) === path,
+            (e) => (e.path.slice(0, e.path.lastIndexOf("/")) || "/") === path,
           ),
           truncated: false,
         };
@@ -415,7 +462,26 @@ mockIPC(
           disk_available: 49.2 * 1024 ** 3,
           uptime_s: 998284,
           load: [0.42, 0.38, 0.31],
+          mounts: [{ path: "/", total: 80 * 1024 ** 3, used: 26.8 * 1024 ** 3, available: 49.2 * 1024 ** 3 },
+            { path: "/srv/data", total: 120 * 1024 ** 3, used: 42 * 1024 ** 3, available: 78 * 1024 ** 3 }],
         };
+      case "list_forwards":
+        return mockForwards.get(args.space) ?? [];
+      case "start_forward":
+      case "start_dynamic_forward":
+      case "start_remote_forward": {
+        const rule = { id: String(++counter), local_port: args.localPort || 43000 + counter,
+          ...(command === "start_forward"
+            ? { kind: "local", target: args.target, target_port: args.targetPort }
+            : command === "start_remote_forward"
+              ? { kind: "remote", remote_port: args.remotePort || 44000 + counter }
+              : { kind: "dynamic" }) };
+        mockForwards.set(args.space, [...(mockForwards.get(args.space) ?? []), rule]);
+        return rule;
+      }
+      case "stop_forward":
+        mockForwards.set(args.space, (mockForwards.get(args.space) ?? []).filter((rule) => rule.id !== args.id));
+        return;
       case "file_action": {
         if (
           spaces.find((s) => s.space === args.space)?.control.owner !== "human"
@@ -437,17 +503,41 @@ mockIPC(
           exists.name = args.destination.split("/").at(-1);
         } else if (args.action === "delete" && exists) {
           fileEntries.splice(fileEntries.indexOf(exists), 1);
+        } else if (args.action === "chmod" && exists) {
+          exists.permissions = (exists.permissions & ~0o7777) | Number.parseInt(args.destination, 8);
         }
         return;
       }
       case "upload_files":
+      case "transfer_folder":
       case "download_file":
         return false;
       case "cancel_transfer":
+      case "discard_download":
+      case "discard_upload":
+      case "discard_folder":
         return;
+      case "pending_downloads":
+      case "pending_uploads":
+      case "pending_folders":
+        return [];
+      case "resume_download":
+      case "resume_upload":
+      case "resume_folder":
+        return true;
+      case "export_terminal":
+        return false;
       case "host_key":
         await sleep(400);
         return ["ssh-ed25519", key];
+      case "choose_ssh_config":
+        return {
+          candidates: [
+            { name: "staging", host: "192.0.2.45", port: 2222, username: "deploy", identity_file: "~/.ssh/deploy", issues: [], routed: false },
+            { name: "private-db", host: "192.0.2.70", port: 22, username: "ops", identity_file: null, issues: [], routed: true },
+          ],
+          warnings: [{ line: 2, directive: "Include" }],
+        };
       case "save_host": {
         const host: Host = {
           ...args.host,
@@ -456,10 +546,12 @@ mockIPC(
         const index = hosts.findIndex((h) => h.id === host.id);
         if (index === -1) hosts.push(host);
         else hosts[index] = host;
+        if (!host.agent_access) revoke(host.id);
         await emit("changed");
         return host;
       }
       case "delete_host":
+        revoke(args.id);
         hosts.splice(
           hosts.findIndex((h) => h.id === args.id),
           1,
@@ -510,10 +602,15 @@ mockIPC(
       case "takeover":
         find(args.space).control = { owner: "human", note: null };
         break;
-      case "release":
-        find(args.space).control = { owner: "agent", note: null };
+      case "release": {
+        const space = find(args.space);
+        if (!hosts.some((host) => host.id === space.host && host.agent_access))
+          throw { code: "HOST_NOT_AUTHORIZED" };
+        space.control = { owner: "agent", note: null };
         break;
+      }
       case "close_space":
+        mockForwards.delete(args.space);
         spaces.splice(spaces.indexOf(find(args.space)), 1);
         break;
       case "job_stream": {

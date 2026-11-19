@@ -5597,10 +5597,11 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibe-ssh-cli"
-version = "0.2.0-preview.5"
+version = "0.2.0-beta.1"
 dependencies = [
  "anyhow",
  "clap",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
@@ -5610,7 +5611,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-core"
-version = "0.2.0-preview.5"
+version = "0.2.0-beta.1"
 dependencies = [
  "anyhow",
  "glob",
@@ -5619,6 +5620,7 @@ dependencies = [
  "rusqlite",
  "russh",
  "russh-sftp",
+ "rustix",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5631,10 +5633,12 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-desktop"
-version = "0.2.0-preview.5"
+version = "0.2.0-beta.1"
 dependencies = [
  "rfd",
+ "rustix",
  "security-framework",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -5648,7 +5652,7 @@ dependencies = [
 
 [[package]]
 name = "vibe-ssh-protocol"
-version = "0.2.0-preview.5"
+version = "0.2.0-beta.1"
 dependencies = [
  "serde",
  "uuid",

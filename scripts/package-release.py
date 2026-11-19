@@ -15,14 +15,15 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--app',type=Path,default=root/'target/release/bundle/macos/Vibe-SSH.app')
 args=parser.parse_args()
 version = tomllib.loads((root/'Cargo.toml').read_text())['workspace']['package']['version']
-arch = platform.machine()
+app = args.app.resolve()
+binary = app / 'Contents/MacOS/vibe-ssh-desktop'
+arch = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
 assert arch in ('arm64', 'x86_64') and platform.system() == 'Darwin'
 name = f'Vibe-SSH-{version}-macos-{arch}'
 out = root/'target/distribution'; out.mkdir(parents=True, exist_ok=True)
 stage = out/name
 if stage.exists(): shutil.rmtree(stage)
 stage.mkdir()
-app = args.app.resolve()
 assert plistlib.loads((app/'Contents/Info.plist').read_bytes())['CFBundleShortVersionString'] == version, 'rebuild the app before packaging'
 subprocess.run(['codesign','--verify','--strict','--deep',str(app)],check=True)
 subprocess.run(['ditto',str(app),str(stage/'Vibe-SSH.app')],check=True)

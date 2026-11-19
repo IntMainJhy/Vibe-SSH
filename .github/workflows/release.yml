@@ -1,8 +1,8 @@
-name: Release preview
+name: Release prerelease
 
 on:
   push:
-    tags: ['v*-preview.*']
+    tags: ['v*-preview.*', 'v*-beta.*']
 
 permissions:
   contents: read
@@ -67,13 +67,10 @@ jobs:
           pattern: macos-*
           path: release-assets
           merge-multiple: true
-      - name: Publish preview with checksums
+      - name: Publish prerelease with checksums
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release-assets
           sha256sum *.zip *.dmg > SHA256SUMS.txt
           gh release create "$GITHUB_REF_NAME" ./*.zip ./*.dmg SHA256SUMS.txt --verify-tag --prerelease --title "Vibe-SSH $GITHUB_REF_NAME" --notes-file "../docs/releases/${GITHUB_REF_NAME#v}.md"
-          if [ "$GITHUB_REF_NAME" = "v0.2.0-preview.2" ] && gh release view v0.2.0-preview.1 >/dev/null 2>&1; then
-            gh release edit v0.2.0-preview.1 --draft
-          fi

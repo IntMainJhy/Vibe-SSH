@@ -7,7 +7,6 @@ import { createReadPoller } from "./read-poller";
 export function useWorkspace() {
   const [data, setData] = useState<Snapshot>();
   const [error, setError] = useState<string>();
-  const [refreshing, setRefreshing] = useState(false);
   const poller = useRef<ReturnType<typeof createReadPoller<Snapshot>> | null>(null);
   const refresh = useCallback(async () => {
     await poller.current?.refresh();
@@ -21,7 +20,6 @@ export function useWorkspace() {
         setError(undefined);
       },
       onError: (e) => setError(explain(e)),
-      onBusy: setRefreshing,
       visible: () => !document.hidden,
     });
     poller.current = loop;
@@ -38,5 +36,5 @@ export function useWorkspace() {
       void stop.then((off) => off()).catch(() => {});
     };
   }, [refresh]);
-  return { data, error, refreshing, refresh };
+  return { data, error, refresh };
 }

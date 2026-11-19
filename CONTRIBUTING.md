@@ -2,7 +2,7 @@
 
 Contributions can include reproducible bug reports, documentation, server-compatibility evidence, interface improvements and code. English and Chinese are welcome.
 
-Vibe-SSH is currently a macOS preview. Read [README](README.md), [the roadmap](ROADMAP.md) and [the implementation status](docs/06-development-and-status.md) before choosing a change.
+Vibe-SSH is currently in public Beta on macOS. Read [README](README.md), [the roadmap](ROADMAP.md) and [the implementation status](docs/06-development-and-status.md) before choosing a change.
 
 ## Report an issue
 

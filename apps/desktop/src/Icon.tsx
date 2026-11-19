@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  up: <path d="M12 19V5m-6 6 6-6 6 6" />,
   history: <path d="M3 11a9 9 0 1 1 2.5 7M3 4v7h7M12 7v5l3 2" />,
   rename: <path d="M4 7h9M8 4v16M5 4h6M5 20h6M16 9h5M16 15h5M18.5 7v10" />,
   folder: <path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3z" />,

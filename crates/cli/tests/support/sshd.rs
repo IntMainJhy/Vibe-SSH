@@ -93,6 +93,9 @@ impl Sshd {
             port: self.port,
             username: std::env::var("USER").unwrap(),
             identity_file: Some(self.path(key)),
+            ssh_agent: false,
+            jump_host: None,
+            proxy: None,
             host_key_sha256: self.fingerprint.clone(),
             agent_access,
         }

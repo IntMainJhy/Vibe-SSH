@@ -12,14 +12,15 @@
 </p>
 
 <p align="center">
-  An open-source macOS SSH/SFTP client for <strong>Codex, Claude Code and other external AI agents</strong>.<br />
+  An open-source macOS SSH/SFTP client with <strong>Skill and CLI access for external agents</strong>.<br />
   Add your servers manually. Deploy and troubleshoot through Skills.<br />
   <strong>Watch commands and output in real time. Take over whenever you need.</strong>
 </p>
 
-<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases">Download the macOS preview</a></h3>
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">Download the macOS Beta</a></h3>
 
 <p align="center">
+  <a href="https://intmainjhy.github.io/Vibe-SSH/">Product website</a> &nbsp;·&nbsp;
   <a href="#what-you-can-do">Features</a> &nbsp;·&nbsp;
   <a href="docs/installation.en.md">Installation</a> &nbsp;·&nbsp;
   <a href="skills/vibe-ssh/guide.md">Agent guide</a> &nbsp;·&nbsp;
@@ -36,7 +37,7 @@
 
 <p align="center">Your terminals and agent task spaces stay separate, each with its own SSH connection.</p>
 
-> **Preview software:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
+> **Public Beta:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
 
 ![Vibe-SSH workspace with server navigation, sessions and agent activity](docs/assets/workspace.png)
 
@@ -50,9 +51,10 @@
 | Give an agent a server task | Enable access for a host. An external agent loads the Skill and uses the version-matched CLI. |
 | See the work happen | Inspect commands, task state and terminal output while the agent works. |
 | Take over and return control | Taking over blocks new agent writes in that space. Returning control issues a new lease; old leases stay invalid. |
-| Move and edit files | Browse SFTP directories, transfer files, and edit bounded UTF-8 text with version checks and backups. |
-| Compare project directories | Preview metadata and ignore rules, then hash only selected regular files. No automatic synchronization or deletion. |
-| Read retained tasks | Browse bounded command/output history after restart. Unknown outcomes stay unknown; commands and leases are never replayed. |
+| Move and edit files | Browse the SFTP filesystem, resume file and folder transfers, and edit bounded UTF-8 text with version checks and backups. |
+| Connect through a route | Preview OpenSSH imports, use a local key agent, connect through verified jump hosts or a proxy, and configure personal TCP forwarding. |
+| Compare project directories | Preview metadata and selected file contents, then explicitly apply reviewed additions or replacements with version checks and backups. |
+| Read retained tasks | Follow deployment steps and transfer results, then read or export bounded raw output archives from history. |
 | Inspect Linux resources | View CPU, memory, swap, load, uptime and root-filesystem usage. Samples are collected while monitoring is visible. |
 | Deploy a website | Use the Skill's static-site/Nginx or Docker Compose reference flow, with service checks and failure handling. |
 
@@ -60,14 +62,14 @@ Vibe-SSH connects the AI agent you already use to your SSH workflow. The applica
 
 ## Install and connect
 
-1. Download a preview from [Releases](https://github.com/IntMainJhy/Vibe-SSH/releases). Choose `macos-arm64` for Apple silicon or `macos-x86_64` for Intel. Each release includes DMG/ZIP packages and `SHA256SUMS.txt`.
+1. Download the Beta from [Releases](https://github.com/IntMainJhy/Vibe-SSH/releases). Choose `macos-arm64` for Apple silicon or `macos-x86_64` for Intel. Each release includes DMG/ZIP packages and `SHA256SUMS.txt`.
 2. Move `Vibe-SSH.app` to **Applications** and open it. Follow the [installation guide](docs/installation.en.md) for checksum verification and macOS's per-app opening procedure.
 3. Add a server yourself: name, address, port, username, and password or private key. Verify the host fingerprint through a trusted channel before saving.
 4. Open a terminal for your own work. To let an agent use the server, enable agent access for that host.
 
 On startup and upgrade, the app synchronizes its Skill links for compatible agents and its CLI link at `~/.local/bin/vibe-ssh`. Unrelated existing entries are preserved. Paths and uninstall behavior are in the installation guide.
 
-## Let Codex or Claude Code operate it
+## Let an external agent operate it
 
 Keep Vibe-SSH running, then give your agent a server and a goal. For example:
 
@@ -82,6 +84,8 @@ vibe-ssh skill
 ```
 
 That guide describes the installed version: host discovery, one task space per goal, command execution, incremental output, uploads and handoff. Compatible agents that can read Skills and execute local commands can use the CLI; independent end-to-end evidence still needs to be recorded for each agent.
+
+The Beta static-site Skill uses `batch` to combine commands and uploads in one invocation. Each step is visible in the desktop app, and the plan stops when a step fails, its result is unknown, or the user takes control. See the [deployment benchmark](docs/performance/2026-11-18-agent-deployment.md).
 
 <details>
 <summary>Example CLI interaction</summary>
@@ -119,15 +123,19 @@ Returning control creates a new lease. The agent must read updated state before 
 
 ## Project status
 
-The current release line is **0.2.0 preview**. The main branch includes the macOS desktop client, isolated agent spaces, SFTP operations, bounded text editing, Linux monitoring and version-matched Skill/CLI integration.
+The macOS [public Beta](https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1) is **0.2.0-beta.1**. It includes personal SSH terminals, isolated agent spaces, resumable SFTP transfers, Linux monitoring and version-matched Skill/CLI integration.
 
 The desktop interface currently uses Simplified Chinese. The CLI guide and these community docs are available in English.
 
 Validation records cover temporary OpenSSH servers and an isolated Debian 13 VM: execution, upload, interruption, takeover, password handoff and the two deployment flows. These scoped records do not establish that every agent has independently deployed an application or that public-server deployment is universally verified.
 
-Preview 5 adds read-only directory comparison and bounded task/output history. Each history stream retains at most 64 KiB of raw tail; it is not a full audit log. The CLI provides `diff` and `history list/get`, with personal history hidden from agents. See [ADR 0006](docs/adr/0006-directory-diff-preview.md) and [ADR 0007](docs/adr/0007-task-history.md) for selection, budgets and storage semantics.
+In an [isolated acceptance run](docs/acceptance/2026-11-18-install-and-agent.md), Codex used the installed Skill to deploy a static site, recover from an Nginx configuration error and hand control back to the user. Claude Code discovered the Skill; its configured model gateway was unavailable for the deployment run.
 
-Native host setup, verified fingerprints, Chinese terminal input, transfers, editing, takeover/return and quit protection have been exercised through the real window. An encrypted-key passphrase survived restart in an isolated real macOS Keychain. M3 native replay also passed directory selection, selected-content comparison and history streams/restart outcomes after an intermittent ScreenCaptureKit capture error was resolved. Clean-system installation, Developer ID/notarization, independent agent deployment, SSH-agent authentication, jump hosts, port forwarding and other desktop platforms remain outstanding.
+Beta keeps task summaries and output tails and also archives new output up to 64 MiB per stream and 512 MiB per profile. History shows when capture is incomplete. Personal history remains visible only in the app. See [ADR 0007](docs/adr/0007-task-history.md).
+
+Native acceptance covers host setup and fingerprints, Chinese terminal input, SFTP transfers, guarded text saves, takeover and quit protection. An encrypted-key passphrase survived a restart in an isolated macOS Keychain.
+
+Native and loopback validation for Beta are listed in the implementation log. Stable distribution still needs clean-system installation, physical Intel coverage, Developer ID signing and Apple notarization.
 
 See the [implementation and evidence log](docs/06-development-and-status.md), [roadmap](ROADMAP.md) and [release notes](CHANGELOG.md).
 

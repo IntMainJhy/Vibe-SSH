@@ -46,7 +46,7 @@ impl Vm {
             home.path().to_owned(),
             Box::new(move |_| Some(password.clone())),
         );
-        service.save_hosts(&hosts).unwrap();
+        service.save_hosts(&hosts).await.unwrap();
         serve(service.clone()).await.unwrap();
         let work = format!("/tmp/vibe-ssh-test-{}", std::process::id());
         Some(Self {
@@ -148,11 +148,90 @@ fn text(value: &Value) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires VIBE_SSH_LINUX_VM and the disposable Debian VM"]
+async fn linux_remote_forward_is_a_loopback_listener_on_the_guest() {
+    use tokio::{io::AsyncReadExt, net::TcpListener};
+    use vibe_ssh_protocol::Owner;
+
+    let Some(vm) = Vm::start().await else { return };
+    let (_, observer) = vm.open("vm").await;
+    let personal = vm
+        .service
+        .open("vm", "remote loopback", "me", Owner::Human)
+        .await
+        .unwrap()
+        .space;
+    let target = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let rule = vm
+        .service
+        .start_remote_forward(&personal, 0, target.local_addr().unwrap().port())
+        .await
+        .unwrap();
+    let remote_port = serde_json::to_value(&rule).unwrap()["remote_port"]
+        .as_u64()
+        .unwrap();
+    let listening = format!("ss -H -ltn 'sport = :{remote_port}' | awk '{{ print $4 }}'");
+    assert_eq!(
+        vm.sh(&observer, &listening).await,
+        format!("127.0.0.1:{remote_port}")
+    );
+    let request = format!("curl --noproxy '*' -fsS --max-time 3 http://127.0.0.1:{remote_port}/");
+    let (body, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(vm.sh(&observer, &request), async {
+            let (mut stream, _) = target.accept().await.unwrap();
+            let mut bytes = [0; 1024];
+            let read = stream.read(&mut bytes).await.unwrap();
+            assert!(bytes[..read].starts_with(b"GET /"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nrelay test",
+                )
+                .await
+                .unwrap();
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(body, "relay test");
+    vm.service.stop_forward(&personal, &rule.id).await.unwrap();
+    assert_eq!(vm.sh(&observer, &listening).await, "");
+    vm.service.close(By::Human(&personal)).await.unwrap();
+    vm.ok(&["space", "close", "--lease", &observer]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires VIBE_SSH_LINUX_VM and the disposable Debian VM"]
 async fn linux_server_exec_pty_upload_interrupt_and_credentials() {
     let Some(vm) = Vm::start().await else { return };
     let (space, lease) = vm.open("vm").await;
     let work = vm.work.as_str();
     assert_eq!(vm.sh(&lease, "uname -s; id -un").await, "Linux\ndeploy");
+
+    let sample = vm.ok(&["resources", &space]).await;
+    assert!(
+        sample["cpu_percent"]
+            .as_f64()
+            .is_some_and(|cpu| (0.0..=100.0).contains(&cpu))
+    );
+    assert!(sample["cores"].as_u64().unwrap() > 0);
+    assert!(
+        sample["memory_available"].as_u64().unwrap() <= sample["memory_total"].as_u64().unwrap()
+    );
+    assert!(sample["disk_used"].as_u64().unwrap() <= sample["disk_total"].as_u64().unwrap());
+    assert_eq!(sample["load"].as_array().unwrap().len(), 3);
+    assert!(
+        sample["mounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|mount| mount["path"] == "/" && mount["total"] == sample["disk_total"])
+    );
+    assert_eq!(
+        vm.ok(&["space", "get", &space]).await["jobs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     // Exit codes, separate streams, and a signal death reported as a signal.
     let (code, job, _) = vm

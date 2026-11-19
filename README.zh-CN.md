@@ -12,14 +12,15 @@
 </p>
 
 <p align="center">
-  开源的 macOS SSH/SFTP 客户端，支持 <strong>Codex、Claude Code 等外部 AI Agent</strong>。<br />
+  开源的 macOS SSH/SFTP 客户端，提供 <strong>Skill 与 CLI 接入外部 Agent</strong>。<br />
   手动添加自己的服务器，通过 Skill 完成网站部署与故障排查。<br />
   <strong>命令与输出实时可见，任务空间随时接管。</strong>
 </p>
 
-<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases">下载 macOS 预览版</a></h3>
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">下载 macOS Beta</a></h3>
 
 <p align="center">
+  <a href="https://intmainjhy.github.io/Vibe-SSH/">产品官网</a> &nbsp;·&nbsp;
   <a href="#可以做什么">功能概览</a> &nbsp;·&nbsp;
   <a href="docs/installation.md">安装说明</a> &nbsp;·&nbsp;
   <a href="skills/vibe-ssh/guide.md">Agent 指南</a> &nbsp;·&nbsp;
@@ -36,7 +37,7 @@
 
 <p align="center">你的日常终端与 Agent 任务空间使用独立 SSH 连接，可以并行工作。</p>
 
-> **当前为预览版：** 提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
+> **当前为公开测试版（Beta）**。 提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
 
 ![Vibe-SSH 工作台：服务器导航、会话与 Agent 活动入口](docs/assets/workspace.png)
 
@@ -50,7 +51,9 @@
 | 外部 AI 操作 | 逐台开启 Agent 接入，Agent 读取 Skill 后通过版本匹配的 CLI 操作。 |
 | 观看执行过程 | 打开 Agent 空间，查看指令、任务状态和终端输出。 |
 | 人工接管 | 接管后内核拒绝空间里的新 Agent 写操作；归还生成新租约，旧租约保持失效。 |
-| 文件传输与编辑 | SFTP 浏览、上传下载，查看和编辑有大小限制的 UTF-8 文本，保存时进行版本检查并保留备份。 |
+| 文件传输与编辑 | 浏览 SFTP 根目录和主目录，续传文件和文件夹，编辑有大小限制的 UTF-8 文本，带版本检查和备份。 |
+| 连接与转发 | 预览导入 OpenSSH 配置，使用密钥代理、跳板机、网络代理和个人会话端口转发。 |
+| 目录比较与历史 | 核对目录差异，再应用选中的新增或替换。历史可查看传输、部署步骤与归档日志。 |
 | Linux 资源监控 | 查看 CPU、内存、交换空间、负载、运行时间和根分区用量，监控页可见时采样。 |
 | 网站部署 | 使用静态站点/Nginx 与 Docker Compose 参考流程，包含验证和失败处理。 |
 
@@ -65,7 +68,7 @@ Vibe-SSH 把你已有的 AI Agent 接入 SSH 工作流。客户端本身不运�
 
 应用启动及升级时会同步兼容 Agent 的 Skill 链接，并创建 `~/.local/bin/vibe-ssh` 命令链接；无关的已有同名内容会保留。详细路径、移动应用和卸载行为见安装说明。
 
-## 让 Codex 或 Claude Code 使用
+## 让外部 Agent 使用
 
 保持 Vibe-SSH 运行，在 Agent 对话里说明服务器和具体目标，例如：
 
@@ -80,6 +83,8 @@ vibe-ssh skill
 ```
 
 说明包含授权主机列表、每个目标的任务空间、执行指令、增量输出、上传与交接。能读取 Skill 并执行本机命令行的兼容 Agent 可以使用这些接口；每种 Agent 的独立部署验证仍需记录具体证据。
+
+当前开发版的静态站点 Skill 支持用一次 `batch` 调用完成多个命令和上传，桌面端逐步显示任务与输出。步骤失败、结果未知或用户接管后，后续步骤停止提交。 [完整部署对照](docs/performance/2026-11-18-agent-deployment.md)
 
 <details>
 <summary>命令行调用示例</summary>
@@ -117,15 +122,19 @@ Agent 的指令、终端和控制权归属于任务空间。你可以在自己�
 
 ## 当前状态与边界
 
-当前发布线为 **0.2.0 预览版**。主分支已有 macOS 客户端、隔离的 Agent 任务空间、SFTP 文件操作、有界文本编辑、Linux 监控，以及版本匹配的 Skill/CLI 接入。
+macOS [公开测试版](https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1) 为 **0.2.0-beta.1**。客户端包含个人终端、隔离的 Agent 任务空间、SFTP 续传、Linux 监控，以及版本匹配的 Skill 和 CLI。
 
 桌面界面当前使用简体中文，CLI 指南与社区文档提供英文入口。
 
 已有工程记录覆盖临时 OpenSSH 服务和隔离 Debian 13 虚拟机上的执行、上传、中断、接管、密码交接与两种部署流程。这些证据有明确范围，不代表每种 Agent 都已独立完成部署，也不代表已普遍验证公网服务器。
 
-Preview 5 新增只读目录差异预览与任务/输出历史。先看两端元数据和忽略范围，再只哈希明确选择的普通文件；不会自动同步、覆盖或删除。历史每路保留最多 64 KiB 原始输出尾部，不是全量审计。CLI 新增 `diff` 和 `history list/get`，Agent 不可读取个人历史。选择、预算、持久化和重启语义见 [ADR 0006](docs/adr/0006-directory-diff-preview.md) / [ADR 0007](docs/adr/0007-task-history.md)。
+Beta 保留任务摘要与输出尾部。新任务每路另保存最多 64 MiB 的原始输出，归档总配额为 512 MiB。历史会标出归档不完整的记录，个人历史仅在桌面端可见。详见 [ADR 0007](docs/adr/0007-task-history.md)。
 
-原生核心流程已验证主机录入、独立指纹核对、中文终端、上传下载、编辑保存、并行使用、接管归还和退出保护；加密私钥口令在隔离真实 Keychain 中通过重启连接。M3 原生追加验收在间歇采集错误恢复后，已通过目录选择、所选内容比较、历史两路输出和重启未知记录读回。干净系统安装卸载、正式签名/公证、真实 Agent 独立部署、SSH-agent 认证、跳板机、端口转发和其他桌面平台仍待完成。
+原生验收覆盖主机录入和指纹核对、中文终端、SFTP 传输、文本保存、接管归还和退出保护。加密私钥口令在隔离的 macOS 钥匙串中通过重启连接验证。
+
+各功能的原生和回环验收范围见开发记录。稳定版仍需干净 macOS 系统和物理 Intel 设备验收、Developer ID 签名与 Apple 公证。
+
+[独立 Agent 验收](docs/acceptance/2026-11-18-install-and-agent.md)中，Codex 使用已安装的 Skill 完成静态站点部署、Nginx 配置故障恢复和人工交接。Claude Code 已发现 Skill，配置的模型网关未能连接，部署待复验。
 
 详见[开发与验证记录](docs/06-development-and-status.md)、[路线图](ROADMAP.md)和[更新日志](CHANGELOG.md)。
 

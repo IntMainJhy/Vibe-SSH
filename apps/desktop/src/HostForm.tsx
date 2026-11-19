@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { call, explain, type Host } from "./api";
+import { call, explain, type Host, type HostDraft, type ProxySettings } from "./api";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 
@@ -7,20 +7,31 @@ type Key = { algorithm: string; fingerprint: string };
 
 export function HostForm({
   initial,
+  draft,
+  hosts,
   onClose,
 }: {
   initial?: Host;
+  draft?: HostDraft;
+  hosts: Host[];
   onClose: () => void;
 }) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [address, setAddress] = useState(initial?.host ?? "");
-  const [port, setPort] = useState(String(initial?.port ?? 22));
-  const [username, setUsername] = useState(initial?.username ?? "root");
-  const [useKey, setUseKey] = useState(
-    initial ? initial.identity_file !== null : true,
-  );
+  const [name, setName] = useState(initial?.name ?? draft?.name ?? "");
+  const [address, setAddress] = useState(initial?.host ?? draft?.host ?? "");
+  const [port, setPort] = useState(String(initial?.port ?? draft?.port ?? 22));
+  const [username, setUsername] = useState(initial?.username ?? (draft ? draft.username ?? "" : "root"));
+  const [auth, setAuth] = useState(initial?.ssh_agent ? "agent" : initial && !initial.identity_file ? "password" : "key");
+  const [jump, setJump] = useState(initial?.jump_host ?? "");
+  const [route, setRoute] = useState<"direct" | "jump" | ProxySettings["kind"]>(initial?.proxy?.kind ?? (initial?.jump_host ? "jump" : "direct"));
+  const [proxyAddress, setProxyAddress] = useState(initial?.proxy?.address ?? "");
+  const [proxyPort, setProxyPort] = useState(initial?.proxy ? String(initial.proxy.port) : "");
+  const jumpHosts = hosts.filter((host) => host.id !== initial?.id);
+  const proxy = route === "http_connect" || route === "socks5" ? { kind: route, address: proxyAddress.trim(), port: Number(proxyPort) } : undefined;
+  const validRoute = route === "jump" ? jumpHosts.some((host) => host.id === jump)
+    : !proxy || (proxy.address && Number.isInteger(proxy.port) && proxy.port > 0 && proxy.port <= 65535);
+  const useKey = auth === "key";
   const [identity, setIdentity] = useState(
-    initial?.identity_file ?? "~/.ssh/id_ed25519",
+    initial?.identity_file ?? draft?.identity_file ?? "~/.ssh/id_ed25519",
   );
   const [secret, setSecret] = useState("");
   const [agentAccess, setAgentAccess] = useState(
@@ -38,12 +49,13 @@ export function HostForm({
   const validPort =
     Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
   const requiresPassword =
-    !useKey && (!initial || initial.identity_file !== null);
+    auth === "password" && (!initial || initial.identity_file !== null || initial.ssh_agent);
   const ready = Boolean(
     name.trim() &&
       address.trim() &&
       username.trim() &&
       validPort &&
+      validRoute &&
       key &&
       verified &&
       (!useKey || identity.trim()) &&
@@ -73,11 +85,11 @@ export function HostForm({
     setVerified(false);
   };
   const fetchKey = () => {
-    if (!address.trim() || !validPort) return;
+    if (!address.trim() || !validPort || !validRoute) return;
     void run("probe", async () => {
       const [algorithm, fingerprint] = await call<[string, string]>(
         "host_key",
-        { host: address.trim(), port: portNumber },
+        { host: address.trim(), port: portNumber, jumpHost: route === "jump" ? jump : null, proxy: proxy ?? null },
       );
       setKey({ algorithm, fingerprint });
       setVerified(false);
@@ -94,10 +106,13 @@ export function HostForm({
           port: portNumber,
           username: username.trim(),
           identity_file: useKey ? identity.trim() : null,
+          ssh_agent: auth === "agent" || undefined,
+          jump_host: route === "jump" ? jump : undefined,
+          proxy,
           host_key_sha256: key?.fingerprint ?? "",
           agent_access: agentAccess,
         },
-        secret: secret || null,
+        secret: auth === "agent" ? null : secret || null,
       });
       onClose();
     });
@@ -183,6 +198,31 @@ export function HostForm({
             />
           </label>
           <div className="form-divider" />
+          <label>
+            连接路径
+            <select value={route} onChange={(e) => retarget(() => setRoute(e.target.value as typeof route))}>
+              <option value="direct">直连</option>
+              <option value="jump" disabled={!jumpHosts.length && route !== "jump"}>SSH 跳板机</option>
+              <option value="http_connect">HTTP CONNECT 代理</option>
+              <option value="socks5">SOCKS5 代理</option>
+            </select>
+          </label>
+          {route === "jump" && (
+            <label>
+              跳板机
+              <select value={jump} onChange={(e) => retarget(() => setJump(e.target.value))}>
+                <option value="">选择已保存的服务器</option>
+                {jump && !validRoute && <option value={jump}>跳板机不可用</option>}
+                {jumpHosts.map((host) => <option value={host.id} key={host.id}>经 {host.name} 连接</option>)}
+              </select>
+            </label>
+          )}
+          {proxy && <div className="pair">
+            <label>代理地址 <input value={proxyAddress} required spellCheck={false}
+              onChange={(e) => retarget(() => setProxyAddress(e.target.value))} /></label>
+            <label className="narrow">代理端口 <input type="number" value={proxyPort} min={1} max={65535} required
+              onChange={(e) => retarget(() => setProxyPort(e.target.value))} /></label>
+          </div>}
           <fieldset className="auth-choice">
             <legend>认证方式</legend>
             <label>
@@ -190,7 +230,7 @@ export function HostForm({
                 type="radio"
                 name="auth"
                 checked={useKey}
-                onChange={() => setUseKey(true)}
+                onChange={() => setAuth("key")}
               />
               SSH 私钥
             </label>
@@ -198,10 +238,14 @@ export function HostForm({
               <input
                 type="radio"
                 name="auth"
-                checked={!useKey}
-                onChange={() => setUseKey(false)}
+                checked={auth === "password"}
+                onChange={() => setAuth("password")}
               />
               密码登录
+            </label>
+            <label>
+              <input type="radio" name="auth" checked={auth === "agent"} onChange={() => setAuth("agent")} />
+              SSH 密钥代理
             </label>
           </fieldset>
           {useKey && (
@@ -216,7 +260,7 @@ export function HostForm({
               />
             </label>
           )}
-          <label>
+          {auth !== "agent" ? <label>
             {useKey ? "私钥口令" : "登录密码"}
             <input
               type="password"
@@ -236,7 +280,7 @@ export function HostForm({
               <Icon name="shield" size={12} />
               保存到系统钥匙串，Agent 接口不提供凭据。
             </small>
-          </label>
+          </label> : <p className="muted">使用系统 SSH 密钥代理中已加载的密钥。</p>}
           <div className="trust">
             <div className="trust-head">
               <strong>
@@ -246,7 +290,7 @@ export function HostForm({
               <button
                 type="button"
                 onClick={fetchKey}
-                disabled={!address.trim() || !validPort}
+                disabled={!address.trim() || !validPort || !validRoute}
               >
                 {busy === "probe"
                   ? "正在获取…"
@@ -290,7 +334,7 @@ export function HostForm({
               <strong>允许 Agent 操作</strong>
               <small>
                 通过 Skill 以 {username || "此用户"}{" "}
-                的权限运行命令，此开关对新会话生效，已有会话可接管或关闭。
+                的权限运行命令。关闭并保存后，已有 Agent 会话由你控制，运行中的命令可查看或手动中断。
               </small>
             </span>
           </label>
@@ -303,7 +347,7 @@ export function HostForm({
         )}
         {deleting && (
           <p className="form-error" role="alert">
-            删除连接资料不会删除服务器上的文件。已打开的会话仍需单独关闭。
+            删除连接资料会撤销 Agent 接入。已打开的会话仍可查看和关闭，服务器上的文件不受影响。
           </p>
         )}
         <footer className="form-actions">

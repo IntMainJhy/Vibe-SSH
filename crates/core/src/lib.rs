@@ -2,6 +2,9 @@
 
 pub mod diff;
 mod history;
+mod job_archive;
+mod proxy;
+pub use proxy::{ProxyKind, ProxySettings};
 mod output;
 mod server;
 mod service;
@@ -11,7 +14,9 @@ mod upload;
 
 pub use server::{default_home, request, serve, socket_path};
 pub use service::{
-    By, Chunk, Directory, RemoteEntry, Secrets, Service, TextDocument, TextSaved, TransferProgress,
+    By, Chunk, DiffApplyPlan, DiffApplyResult, Directory, DownloadPlan, FolderPlan, LocalForward,
+    RemoteEntry, Secrets, Service, TextDocument, TextSaved, TransferObservation, TransferProgress,
+    UploadPlan,
 };
 pub use ssh::{Host, host_key};
 pub use upload::Archive;

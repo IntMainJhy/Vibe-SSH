@@ -10,7 +10,7 @@ export function createReadPoller<T>({
   read: () => Promise<T>;
   onValue: (value: T) => void;
   onError: (error: unknown) => void;
-  onBusy: (busy: boolean) => void;
+  onBusy?: (busy: boolean) => void;
   visible?: () => boolean;
   interval?: number;
 }) {
@@ -31,7 +31,7 @@ export function createReadPoller<T>({
       return;
     }
     reading = true;
-    onBusy(true);
+    onBusy?.(true);
     try {
       const value = await read();
       if (active) {
@@ -46,7 +46,7 @@ export function createReadPoller<T>({
     } finally {
       reading = false;
       if (active) {
-        onBusy(false);
+        onBusy?.(false);
         if (visible()) {
           if (queued) {
             queued = false;

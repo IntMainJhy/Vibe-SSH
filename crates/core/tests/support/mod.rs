@@ -34,6 +34,10 @@ pub struct Stats {
     pub executions: AtomicUsize,
     pub signals: AtomicUsize,
     pub deny_pty: AtomicBool,
+    pub pause_authentication: AtomicBool,
+    pub authentication_started: tokio::sync::Notify,
+    pub continue_authentication: tokio::sync::Notify,
+    pub upload_eofs: AtomicUsize,
     pub received: Mutex<Vec<u8>>,
     pub commands: Mutex<Vec<String>>,
 }
@@ -66,6 +70,9 @@ impl Fixture {
             port: listener.local_addr().unwrap().port(),
             username: "fixture".into(),
             identity_file: Some(identity_file.clone()),
+            ssh_agent: false,
+            jump_host: None,
+            proxy: None,
             host_key_sha256: host_key
                 .public_key()
                 .fingerprint(HashAlg::Sha256)
@@ -76,25 +83,27 @@ impl Fixture {
             home.path().to_owned(),
             Box::new(|host| (host.id == "password").then(|| PASSWORD.to_owned())),
         );
-        service.save_hosts(&[
-            host("fixture"),
-            Host {
-                agent_access: false,
-                ..host("private")
-            },
-            Host {
-                identity_file: None,
-                ..host("password")
-            },
-            Host {
-                host_key_sha256: "SHA256:incorrect".into(),
-                ..host("badkey")
-            },
-            Host {
-                username: "not-the-fixture-user".into(),
-                ..host("wronguser")
-            },
-        ])?;
+        service
+            .save_hosts(&[
+                host("fixture"),
+                Host {
+                    agent_access: false,
+                    ..host("private")
+                },
+                Host {
+                    identity_file: None,
+                    ..host("password")
+                },
+                Host {
+                    host_key_sha256: "SHA256:incorrect".into(),
+                    ..host("badkey")
+                },
+                Host {
+                    username: "not-the-fixture-user".into(),
+                    ..host("wronguser")
+                },
+            ])
+            .await?;
         let server_config = Arc::new(server::Config {
             keys: vec![host_key],
             auth_rejection_time: Duration::ZERO,
@@ -233,6 +242,10 @@ impl server::Handler for TestSession {
         key: VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
         self.stats.authentications.fetch_add(1, Ordering::SeqCst);
+        if self.stats.pause_authentication.load(Ordering::SeqCst) {
+            self.stats.authentication_started.notify_one();
+            self.stats.continue_authentication.notified().await;
+        }
         Ok(if username == "fixture" && key.public_key == &self.key {
             Auth::Accept
         } else {
@@ -373,6 +386,7 @@ impl server::Handler for TestSession {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         if self.uploads.remove(&channel) {
+            self.stats.upload_eofs.fetch_add(1, Ordering::SeqCst);
             finish(session, channel, Some(0))?;
         }
         Ok(())

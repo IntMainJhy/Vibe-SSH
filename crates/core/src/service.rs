@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::history::{History, OUTPUT, short};
+use crate::job_archive::Spool;
 use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,18 +20,30 @@ use vibe_ssh_protocol::{
     Control, ErrorCode, HostView, JobStatus, JobSummary, JobView, MAX_COMMAND, MAX_INPUT, MAX_READ,
     MAX_WAIT_MS, Owner, PROTOCOL_VERSION, Reason, SpaceView,
 };
-use vibe_ssh_protocol::{HistoryDetail, HistoryPage, HistoryRecord};
+use vibe_ssh_protocol::{
+    HistoryDetail, HistoryPage, HistoryRecord, LogArchive, LogPage, LogStream,
+};
 
 use crate::{
-    Error, Result,
+    Error, ProxySettings, Result,
     output::OutputLog,
     ssh::{Connection, Host, quote_posix},
 };
 
+#[path = "deployment.rs"]
+mod deployment;
+
+#[path = "forward.rs"]
+mod forward;
+pub use forward::LocalForward;
+
 #[path = "workbench.rs"]
 mod workbench;
 pub use workbench::editor::{TextDocument, TextSaved};
-pub use workbench::{Directory, RemoteEntry, TransferProgress};
+pub use workbench::{
+    DiffApplyPlan, DiffApplyResult, Directory, DownloadPlan, FolderPlan, RemoteEntry,
+    TransferObservation, TransferProgress, UploadPlan,
+};
 
 /// Bound on one transport submission made while holding a space's control lock.
 const SUBMIT: Duration = Duration::from_secs(3);
@@ -38,6 +51,7 @@ const SUBMIT: Duration = Duration::from_secs(3);
 const UPLOAD_IDLE: Duration = Duration::from_secs(60);
 const LOG_LIMIT: usize = 1_048_576;
 const MAX_SPACES: usize = 32;
+const MAX_JUMP_HOSTS: usize = 4;
 /// OpenSSH allows 10 sessions per connection by default.
 const MAX_RUNNING: usize = 8;
 // ponytail: finished jobs live in memory until evicted; persist summaries when history matters.
@@ -81,9 +95,11 @@ struct Space {
     origin: Owner,
     conn: Connection,
     files: tokio::sync::Mutex<Option<Arc<workbench::FileSession>>>,
+    deployment: tokio::sync::Mutex<Option<deployment::Deployment>>,
     documents: Mutex<std::collections::VecDeque<(String, workbench::editor::EditBase)>>,
     file_operation: tokio::sync::Mutex<()>,
     monitoring: tokio::sync::Mutex<()>,
+    forwards: tokio::sync::Mutex<forward::ForwardSet>,
     job_slots: Arc<tokio::sync::Semaphore>,
     /// The lease check and the transport submission share this one serialization boundary.
     control: tokio::sync::Mutex<ControlState>,
@@ -93,6 +109,7 @@ struct Space {
 struct Progress {
     stdout: OutputLog,
     stderr: OutputLog,
+    archive: LogArchive,
     status: JobStatus,
     reason: Option<Reason>,
     exit_code: Option<u32>,
@@ -135,6 +152,7 @@ pub struct Service {
     started: Instant,
     secrets: Secrets,
     registry: Mutex<Registry>,
+    host_updates: tokio::sync::Mutex<BTreeMap<String, Uuid>>,
     events: watch::Sender<u64>,
     editor_save: tokio::sync::Mutex<()>,
     history: Arc<History>,
@@ -193,6 +211,7 @@ impl Service {
             started: Instant::now(),
             secrets,
             registry: Mutex::default(),
+            host_updates: tokio::sync::Mutex::default(),
             events: watch::Sender::new(0),
             editor_save: tokio::sync::Mutex::new(()),
         })
@@ -212,6 +231,7 @@ impl Service {
         json!({
             "version": env!("CARGO_PKG_VERSION"),
             "protocol_version": PROTOCOL_VERSION,
+            "capabilities": vibe_ssh_protocol::READ_CAPABILITIES.into_iter().chain(["deployment_records", "history_log"]).collect::<Vec<_>>(),
             "instance": self.instance,
             "pid": std::process::id(),
             "uptime_s": self.started.elapsed().as_secs(),
@@ -254,6 +274,32 @@ impl Service {
             .await
     }
 
+    pub async fn history_log(
+        &self,
+        record: &str,
+        stream: LogStream,
+        offset: u64,
+        limit: usize,
+        agent: bool,
+    ) -> Result<LogPage> {
+        self.history
+            .log(
+                self.history_hosts(agent)?,
+                record.into(),
+                stream,
+                offset,
+                limit,
+            )
+            .await
+    }
+
+    pub async fn open_history_log(&self, record: &str, stream: LogStream) -> Result<std::fs::File> {
+        self.history
+            .open_log(None, record.into(), stream)
+            .await
+            .map(|(file, _)| file)
+    }
+
     /// The app uses this synchronously when the OS asks it to quit.
     pub fn running_jobs(&self) -> usize {
         self.registry
@@ -287,13 +333,139 @@ impl Service {
         }
     }
 
-    pub fn save_hosts(&self, hosts: &[Host]) -> Result<()> {
+    pub async fn save_hosts(&self, hosts: &[Host]) -> Result<()> {
+        self.update_hosts(|current| *current = hosts.to_vec()).await
+    }
+
+    pub async fn update_hosts(&self, update: impl FnOnce(&mut Vec<Host>)) -> Result<()> {
+        let mut updates = self.host_updates.lock().await;
+        let previous = self.load_hosts()?;
+        let mut hosts = previous.clone();
+        update(&mut hosts);
+        let spaces: Vec<_> = self
+            .registry
+            .lock()
+            .unwrap()
+            .spaces
+            .values()
+            .filter(|space| {
+                space.origin == Owner::Agent
+                    && !hosts
+                        .iter()
+                        .any(|host| host.id == space.host.id && host.agent_access)
+            })
+            .cloned()
+            .collect();
+        let mut controls = Vec::with_capacity(spaces.len());
+        for space in &spaces {
+            controls.push((space, space.control.lock().await));
+        }
         let io = |e: std::io::Error| Error::new(ErrorCode::Internal, format!("hosts.json: {e}"));
         let temporary = self.home.join("hosts.json.tmp");
-        std::fs::write(&temporary, serde_json::to_vec_pretty(hosts).unwrap()).map_err(io)?;
+        std::fs::write(&temporary, serde_json::to_vec_pretty(&hosts).unwrap()).map_err(io)?;
         std::fs::rename(&temporary, self.home.join("hosts.json")).map_err(io)?;
+        updates.retain(|id, _| hosts.iter().any(|host| &host.id == id));
+        for host in &hosts {
+            if !previous.contains(host) {
+                updates.insert(host.id.clone(), Uuid::new_v4());
+            }
+        }
+        for (space, mut control) in controls {
+            if control.owner == Owner::Agent {
+                *control = ControlState {
+                    owner: Owner::Human,
+                    lease: self.lease(space.id),
+                    note: None,
+                };
+                bump(&space.changed);
+                self.invalidate_deployment(space);
+            }
+        }
         bump(&self.events);
         Ok(())
+    }
+
+    fn check_host_access(&self, id: &str) -> Result<()> {
+        if self
+            .load_hosts()?
+            .iter()
+            .any(|host| host.id == id && host.agent_access)
+        {
+            Ok(())
+        } else {
+            err(ErrorCode::HostNotAuthorized, "此主机未开启 Agent 接入。")
+        }
+    }
+
+    fn jump_route<'a>(
+        hosts: &'a [Host],
+        mut next: Option<&'a str>,
+        target: Option<&str>,
+    ) -> Result<Vec<&'a Host>> {
+        let mut route: Vec<&Host> = Vec::new();
+        while let Some(id) = next {
+            if Some(id) == target || route.iter().any(|hop| hop.id == id) {
+                return err(ErrorCode::InvalidRequest, "跳板机路径包含循环。");
+            }
+            if route.len() == MAX_JUMP_HOSTS {
+                return err(ErrorCode::ResourceLimit, "最多可经过 4 台跳板机。");
+            }
+            let hop = hosts.iter().find(|host| host.id == id).ok_or_else(|| {
+                Error::new(
+                    ErrorCode::InvalidRequest,
+                    "跳板机已移除，请重新设置连接路径。",
+                )
+            })?;
+            route.push(hop);
+            next = hop.jump_host.as_deref();
+        }
+        Ok(route)
+    }
+
+    pub fn validate_route(&self, host: &Host) -> Result<()> {
+        if let Some(proxy) = &host.proxy {
+            if host.jump_host.is_some() {
+                return err(ErrorCode::InvalidRequest, "请选择一种连接路径。");
+            }
+            proxy.validate()?;
+        }
+        if host.jump_host.is_some() {
+            let hosts = self.load_hosts()?;
+            Self::jump_route(&hosts, host.jump_host.as_deref(), Some(&host.id))?;
+        }
+        Ok(())
+    }
+
+    async fn connect_route(&self, route: &[&Host]) -> Result<Option<Connection>> {
+        let mut connection = None;
+        for hop in route.iter().rev() {
+            connection = Some(Connection::connect(hop, &|| (self.secrets)(hop), connection).await?);
+        }
+        Ok(connection)
+    }
+
+    pub async fn probe_host(
+        &self,
+        host: &str,
+        port: u16,
+        jump: Option<&str>,
+        proxy: Option<&ProxySettings>,
+    ) -> Result<(String, String)> {
+        if jump.is_some() && proxy.is_some() {
+            return err(ErrorCode::InvalidRequest, "请选择一种连接路径。");
+        }
+        let Some(id) = jump else {
+            return crate::ssh::host_key_via(host, port, proxy).await;
+        };
+        let hosts = self.load_hosts()?;
+        let route = Self::jump_route(&hosts, Some(id), None)?;
+        let connection = self
+            .connect_route(&route)
+            .await?
+            .ok_or_else(|| Error::new(ErrorCode::InvalidRequest, "请选择已保存的跳板机。"))?;
+        let result = connection.probe_through(host, port).await;
+        connection.disconnect().await;
+        result
     }
 
     pub fn hosts(&self, agent: bool) -> Result<Vec<HostView>> {
@@ -329,6 +501,7 @@ impl Service {
             );
         }
         let agent = origin == Owner::Agent;
+        let updates = self.host_updates.lock().await;
         let hosts = self.load_hosts()?;
         let mut found = hosts
             .iter()
@@ -355,11 +528,39 @@ impl Service {
                 "too many open spaces; close finished ones",
             );
         }
+        let version = updates.get(&host.id).copied();
+        let hops = Self::jump_route(&hosts, host.jump_host.as_deref(), Some(&host.id))?;
+        let jump_versions: Vec<_> = hops
+            .iter()
+            .map(|hop| (*hop, updates.get(&hop.id).copied()))
+            .collect();
+        drop(updates);
         // Each space owns its connection: an agent's traffic never shares a transport
         // with the user's terminals or with another agent.
-        let conn = Connection::connect(&host, &|| (self.secrets)(&host)).await?;
+        let route = self.connect_route(&hops).await?;
+        let conn = Connection::connect(&host, &|| (self.secrets)(&host), route).await?;
         let space = {
+            let updates = self.host_updates.lock().await;
+            let current = self.load_hosts()?;
+            if (agent || !hops.is_empty() || host.proxy.is_some())
+                && (updates.get(&host.id).copied() != version
+                    || !current.contains(&host)
+                    || jump_versions.iter().any(|(jump, version)| {
+                        updates.get(&jump.id).copied() != *version || !current.contains(jump)
+                    }))
+            {
+                return err(
+                    ErrorCode::HostNotAuthorized,
+                    "host settings changed during connection; read hosts before opening a new space",
+                );
+            }
             let mut registry = self.registry.lock().unwrap();
+            if registry.spaces.len() >= MAX_SPACES {
+                return err(
+                    ErrorCode::ResourceLimit,
+                    "too many open spaces; close finished ones",
+                );
+            }
             registry.next += 1;
             let id = registry.next;
             let space = Arc::new(Space {
@@ -370,9 +571,11 @@ impl Service {
                 origin,
                 conn,
                 files: tokio::sync::Mutex::new(None),
+                deployment: tokio::sync::Mutex::new(None),
                 documents: Mutex::default(),
                 file_operation: tokio::sync::Mutex::new(()),
                 monitoring: tokio::sync::Mutex::new(()),
+                forwards: tokio::sync::Mutex::default(),
                 job_slots: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING)),
                 control: tokio::sync::Mutex::new(ControlState {
                     owner: origin,
@@ -423,7 +626,9 @@ impl Service {
             registry.spaces.remove(&space.id);
             registry.jobs.retain(|_, job| job.space.id != space.id);
         }
+        self.invalidate_deployment(&space);
         space.conn.disconnect().await;
+        self.clear_forwards(&space).await;
         bump(&space.changed);
         bump(&self.events);
         Ok(())
@@ -445,7 +650,11 @@ impl Service {
                 "your own spaces cannot be given to an agent",
             );
         }
-        self.transfer(&space, Owner::Agent, None).await;
+        {
+            let _updates = self.host_updates.lock().await;
+            self.check_host_access(&space.host.id)?;
+            self.transfer(&space, Owner::Agent, None).await;
+        }
         Ok(self.space_view(&space).await)
     }
 
@@ -464,10 +673,11 @@ impl Service {
         }
         bump(&space.changed);
         bump(&self.events);
+        self.invalidate_deployment(&space);
         Ok(self.space_view(&space).await)
     }
 
-    async fn transfer(&self, space: &Space, owner: Owner, note: Option<String>) {
+    async fn transfer(&self, space: &Arc<Space>, owner: Owner, note: Option<String>) {
         *space.control.lock().await = ControlState {
             owner,
             lease: self.lease(space.id),
@@ -475,6 +685,7 @@ impl Service {
         };
         bump(&space.changed);
         bump(&self.events);
+        self.invalidate_deployment(space);
     }
 
     // ---- jobs ----
@@ -554,6 +765,9 @@ impl Service {
             exit_signal: None,
             stdout_bytes: 0,
             stderr_bytes: 0,
+            transfer: None,
+            deployment: Vec::new(),
+            archive: Some(LogArchive::default()),
         };
         if let Err(error) = self.history.save(record.clone(), vec![], vec![]).await {
             let _ = channel.close().await;
@@ -593,6 +807,16 @@ impl Service {
             return Err(error);
         }
         let (reader, writer) = channel.split();
+        let (spool, archive) = match self.history.spool(record.record.clone()).await {
+            Ok(spool) => (Some(spool), LogArchive::default()),
+            Err(error) => (
+                None,
+                LogArchive {
+                    issue: Some(error.message),
+                    ..LogArchive::default()
+                },
+            ),
+        };
         let job = {
             let mut registry = self.registry.lock().unwrap();
             registry.next += 1;
@@ -615,6 +839,7 @@ impl Service {
                 progress: Mutex::new(Progress {
                     stdout: OutputLog::new(LOG_LIMIT),
                     stderr: OutputLog::new(LOG_LIMIT),
+                    archive,
                     status: JobStatus::Running,
                     reason: None,
                     exit_code: None,
@@ -646,6 +871,7 @@ impl Service {
             reader,
             self.events.clone(),
             self.history.clone(),
+            spool,
         ));
         tokio::spawn(record_output(job.clone(), self.history.clone()));
         bump(&self.events);
@@ -704,7 +930,16 @@ impl Service {
                 Ok(length)
             };
             let length = match tokio::time::timeout(UPLOAD_IDLE, frame).await {
-                Ok(Ok(0)) => break None,
+                Ok(Ok(0)) => {
+                    let control = job.space.control.lock().await;
+                    break match check(&control, &by) {
+                        Ok(()) => {
+                            submit(job.writer.eof()).await?;
+                            None
+                        }
+                        Err(error) => Some(error.message),
+                    };
+                }
                 Ok(Ok(length)) => length,
                 Ok(Err(error)) => break Some(format!("the sender stopped: {error}")),
                 Err(_) => break Some("the sender stalled".to_owned()),
@@ -723,16 +958,11 @@ impl Service {
                 break Some(error.message);
             }
         };
-        match stopped {
-            None => {
-                let _ = submit(job.writer.eof()).await;
-            }
-            Some(why) => {
-                job.progress.lock().unwrap().cut = Some(why);
-                // A cut on a record boundary can still unpack cleanly, so the remote
-                // exit status must not get to call this upload a success.
-                job.abort.notify_one();
-            }
+        if let Some(why) = stopped {
+            job.progress.lock().unwrap().cut = Some(why);
+            // A cut on a record boundary can still unpack cleanly, so the remote
+            // exit status must not get to call this upload a success.
+            job.abort.notify_one();
         }
         Ok(id)
     }
@@ -875,6 +1105,14 @@ impl Service {
             })
     }
 
+    fn remote_read_space(&self, space: &str, agent: bool) -> Result<Arc<Space>> {
+        let space = self.find_space(space, agent)?;
+        if agent {
+            self.check_host_access(&space.host.id)?;
+        }
+        Ok(space)
+    }
+
     fn space_of(&self, by: &By<'_>) -> Result<Arc<Space>> {
         match by {
             By::Human(space) => self.find_space(space, false),
@@ -1013,6 +1251,7 @@ impl Job {
             .unwrap_or_else(|| self.started.elapsed().as_millis() as u64);
         record.stdout_bytes = p.stdout.total();
         record.stderr_bytes = p.stderr.total();
+        record.archive = Some(p.archive.clone());
         (record, p.stdout.retained(OUTPUT), p.stderr.retained(OUTPUT))
     }
     async fn persist(&self, history: &Arc<History>) {
@@ -1074,12 +1313,25 @@ async fn pump(
     mut reader: ChannelReadHalf,
     events: watch::Sender<u64>,
     history: Arc<History>,
+    mut spool: Option<Spool>,
 ) {
     let mut exit_code = None;
     let mut exit_signal = None;
+    let mut flush = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(1),
+        Duration::from_secs(1),
+    );
+    flush.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let outcome = loop {
         let message = tokio::select! {
             _ = job.abort.notified() => break (JobStatus::Failed, Reason::UploadIncomplete),
+            _ = flush.tick(), if spool.is_some() => {
+                if let Some(spool) = &mut spool {
+                    let archive = spool.sync(false).await;
+                    job.progress.lock().unwrap().archive = archive;
+                }
+                continue;
+            }
             message = reader.wait() => message,
         };
         let (to_stderr, data) = match message {
@@ -1109,24 +1361,39 @@ async fn pump(
             None => break (JobStatus::Unknown, Reason::ConnectionLost),
             Some(_) => continue,
         };
-        let mut progress = job.progress.lock().unwrap();
-        if to_stderr {
-            progress.stderr.append(&data);
-        } else {
-            progress.stdout.append(&data);
+        {
+            let mut progress = job.progress.lock().unwrap();
+            if to_stderr {
+                progress.stderr.append(&data);
+            } else {
+                progress.stdout.append(&data);
+            }
         }
-        drop(progress);
         bump(&job.space.changed);
+        if let Some(spool) = &mut spool {
+            spool.append(to_stderr, &data).await;
+        }
     };
     let _ = job.writer.close().await;
     let _saving = job.persistence.lock().await;
     job.record_saved.store(false, Ordering::Release);
-    {
+    let cut = {
         let mut progress = job.progress.lock().unwrap();
-        if let Some(why) = progress.cut.take() {
-            let note = format!("\n[vibe-ssh] upload stopped before completion: {why}\n");
+        let cut = progress
+            .cut
+            .take()
+            .map(|why| format!("\n[vibe-ssh] upload stopped before completion: {why}\n"));
+        if let Some(note) = &cut {
             progress.stderr.append(note.as_bytes());
         }
+        cut
+    };
+    if let Some(spool) = &mut spool {
+        if let Some(note) = cut {
+            spool.append(true, note.as_bytes()).await;
+        }
+        let archive = spool.sync(true).await;
+        job.progress.lock().unwrap().archive = archive;
     }
     let (mut record, out, err) = job.record_snapshot();
     record.status = outcome.0;

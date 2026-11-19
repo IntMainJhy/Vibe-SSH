@@ -1,4 +1,4 @@
-//! Bounded text documents and optimistic save. The desktop is the only caller.
+//! Bounded remote text reads and desktop-only optimistic save.
 use super::*;
 use russh_sftp::protocol::Packet;
 use sha2::{Digest, Sha256};
@@ -27,7 +27,24 @@ pub(in crate::service) struct EditBase {
 struct Contents {
     bytes: Vec<u8>,
     attrs: FileAttributes,
-    fingerprint: String,
+}
+impl Contents {
+    fn fingerprint(&self) -> String {
+        let mut hash = Sha256::new();
+        hash.update(&self.bytes);
+        let attrs = &self.attrs;
+        hash.update(
+            serde_json::to_vec(&(
+                attrs.size,
+                attrs.mtime,
+                attrs.permissions,
+                attrs.uid,
+                attrs.gid,
+            ))
+            .expect("plain metadata"),
+        );
+        format!("{:x}", hash.finalize())
+    }
 }
 fn conflict(message: &str) -> Error {
     Error::new(ErrorCode::FileChanged, message)
@@ -35,7 +52,7 @@ fn conflict(message: &str) -> Error {
 fn metadata_equal(a: &FileAttributes, b: &FileAttributes) -> bool {
     (a.size, a.mtime, a.permissions, a.uid, a.gid) == (b.size, b.mtime, b.permissions, b.uid, b.gid)
 }
-async fn read(session: &FileSession, path: &str) -> Result<Contents> {
+async fn read(session: &FileSession, path: &str, limit: usize) -> Result<Contents> {
     let before = session.lstat(path).await.map_err(sftp_error)?.attrs;
     if !before.file_type().is_file() {
         return err(
@@ -43,10 +60,10 @@ async fn read(session: &FileSession, path: &str) -> Result<Contents> {
             "只能预览普通文本文件；不跟随符号链接或读取特殊文件。",
         );
     }
-    if before.size.is_none_or(|size| size > TEXT_LIMIT as u64) {
+    if before.size.is_none_or(|size| size > limit as u64) {
         return err(
             ErrorCode::InvalidRequest,
-            "文本编辑上限为 1 MiB；请下载文件或使用终端处理。",
+            format!("无法确认文件在 {limit} 字节读取上限内。"),
         );
     }
     let handle = session
@@ -54,7 +71,7 @@ async fn read(session: &FileSession, path: &str) -> Result<Contents> {
         .await
         .map_err(sftp_error)?
         .handle;
-    let result = async {
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
         let opened = session.fstat(&handle).await.map_err(sftp_error)?.attrs;
         if !opened.file_type().is_file() || !metadata_equal(&before, &opened) {
             return Err(conflict("读取期间文件已变化，请重新打开。"));
@@ -62,15 +79,22 @@ async fn read(session: &FileSession, path: &str) -> Result<Contents> {
         let mut bytes = Vec::with_capacity(opened.size.unwrap_or_default() as usize);
         loop {
             match session
-                .read(&handle, bytes.len() as u64, MAX_INPUT as u32)
+                .read(
+                    &handle,
+                    bytes.len() as u64,
+                    (limit - bytes.len() + 1).min(MAX_INPUT) as u32,
+                )
                 .await
             {
                 Ok(data) => {
                     if data.data.is_empty() {
                         return err(ErrorCode::ConnectionFailed, "empty SFTP data without EOF");
                     }
-                    if bytes.len() + data.data.len() > TEXT_LIMIT {
-                        return err(ErrorCode::InvalidRequest, "文本超过 1 MiB，已停止读取。");
+                    if bytes.len() + data.data.len() > limit {
+                        return err(
+                            ErrorCode::ResourceLimit,
+                            "text grew beyond the byte limit during reading",
+                        );
                     }
                     bytes.extend_from_slice(&data.data);
                 }
@@ -93,27 +117,15 @@ async fn read(session: &FileSession, path: &str) -> Result<Contents> {
                 "此文件不是 UTF-8 文本，请下载后使用对应工具打开。",
             );
         }
-        let mut hash = Sha256::new();
-        hash.update(&bytes);
-        hash.update(
-            serde_json::to_vec(&(
-                after.size,
-                after.mtime,
-                after.permissions,
-                after.uid,
-                after.gid,
-            ))
-            .expect("plain metadata"),
-        );
         Ok(Contents {
             bytes,
             attrs: after,
-            fingerprint: format!("{:x}", hash.finalize()),
         })
-    }
+    })
     .await;
     let closed = session.close(handle).await.map_err(sftp_error);
-    let contents = result?;
+    let contents =
+        result.map_err(|_| Error::new(ErrorCode::ConnectionFailed, "text read timed out"))??;
     closed?;
     Ok(contents)
 }
@@ -135,7 +147,7 @@ fn document(
         revision.clone(),
         EditBase {
             path: path.clone(),
-            fingerprint: contents.fingerprint,
+            fingerprint: contents.fingerprint(),
             generation,
         },
     ));
@@ -157,7 +169,7 @@ fn rename_payload(from: &str, to: &str) -> Vec<u8> {
     }
     bytes
 }
-async fn replace(
+pub(super) async fn replace(
     session: &FileSession,
     from: &str,
     to: &str,
@@ -173,6 +185,34 @@ async fn replace(
 }
 
 impl Service {
+    pub(crate) async fn agent_text(
+        &self,
+        space: &str,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<Value> {
+        path_valid(path)?;
+        if !(1..=vibe_ssh_protocol::MAX_TEXT_BYTES).contains(&max_bytes) {
+            return err(
+                ErrorCode::InvalidRequest,
+                "text limit must be 1..=65536 bytes",
+            );
+        }
+        let space = self.remote_read_space(space, true)?;
+        let _file = space.file_operation.try_lock().map_err(|_| {
+            Error::new(
+                ErrorCode::ResourceLimit,
+                "another file operation is in progress in this space",
+            )
+        })?;
+        let session = space.sftp().await?;
+        let contents = read(&session, path, max_bytes).await?;
+        let bytes = contents.bytes.len();
+        Ok(
+            json!({"path": path, "bytes": bytes, "text": String::from_utf8(contents.bytes).expect("validated UTF-8")}),
+        )
+    }
+
     pub async fn text_file(&self, space: &str, path: &str) -> Result<TextDocument> {
         path_valid(path)?;
         let space = self.find_space(space, false)?;
@@ -205,7 +245,7 @@ impl Service {
             .ok_or_else(|| Error::new(ErrorCode::InvalidRequest, "server returned no path"))?
             .filename;
         path_valid(&canonical)?;
-        let contents = read(&session, &canonical).await?;
+        let contents = read(&session, &canonical, TEXT_LIMIT).await?;
         let document = document(
             &space,
             canonical,
@@ -268,8 +308,8 @@ impl Service {
                 "服务器不支持安全替换与备份，此处只能预览；可使用终端编辑。",
             );
         }
-        let original = read(&session, &base.path).await?;
-        if original.fingerprint != base.fingerprint {
+        let original = read(&session, &base.path, TEXT_LIMIT).await?;
+        if original.fingerprint() != base.fingerprint {
             return Err(conflict(
                 "远端文件已被修改，未覆盖任何内容。草稿已保留，请复制草稿或重新读取远端版本。",
             ));
@@ -329,7 +369,7 @@ impl Service {
             space
                 .file_write(by, &generation, session.close(&handle))
                 .await?;
-            if read(&session, &base.path).await?.fingerprint != base.fingerprint {
+            if read(&session, &base.path, TEXT_LIMIT).await?.fingerprint() != base.fingerprint {
                 return Err(conflict("上传期间远端文件已变化，未替换目标。草稿已保留。"));
             }
             space
@@ -339,8 +379,8 @@ impl Service {
                     session.hardlink(base.path.clone(), backup.clone()),
                 )
                 .await?;
-            if read(&session, &backup).await?.fingerprint != base.fingerprint
-                || read(&session, &base.path).await?.fingerprint != base.fingerprint
+            if read(&session, &backup, TEXT_LIMIT).await?.fingerprint() != base.fingerprint
+                || read(&session, &base.path, TEXT_LIMIT).await?.fingerprint() != base.fingerprint
             {
                 return Err(conflict("保存前远端版本已变化，未替换目标。草稿已保留。"));
             }
@@ -348,7 +388,7 @@ impl Service {
             space
                 .file_write(by, &generation, replace(&session, &temporary, &base.path))
                 .await?;
-            let current = read(&session, &base.path).await?;
+            let current = read(&session, &base.path, TEXT_LIMIT).await?;
             if current.bytes != text.as_bytes() {
                 return Err(conflict(
                     "保存后远端内容又被修改，请核实结果；不会自动重试。",

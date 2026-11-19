@@ -1,4 +1,5 @@
 //! Durable bounded task observations, never restored connections or write authority.
+use crate::job_archive::{self, LogStore, Spool};
 use crate::{Error, ErrorCode, Result, output::OutputLog};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
@@ -9,12 +10,16 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
-use vibe_ssh_protocol::{HistoryDetail, HistoryPage, HistoryRecord, JobStatus, Owner};
+use vibe_ssh_protocol::{
+    DeploymentStepStatus, HistoryDetail, HistoryPage, HistoryRecord, JobStatus, LogPage, LogStream,
+    MAX_LOG_READ, Owner,
+};
 
 pub(crate) const OUTPUT: usize = 64 * 1024;
 struct Db {
     conn: Connection,
     _lock: File,
+    logs: std::result::Result<LogStore, String>,
 }
 
 pub(crate) struct History {
@@ -74,6 +79,65 @@ impl History {
         let result = self.call(move |db| db.save(&record, &out, &err)).await;
         *self.error.lock().unwrap() = result.as_ref().err().map(ToString::to_string);
         result
+    }
+    pub async fn spool(self: &Arc<Self>, id: String) -> Result<Spool> {
+        self.call(move |db| {
+            db.logs
+                .as_ref()
+                .map_err(failure)?
+                .spool(&id)
+                .map_err(failure)
+        })
+        .await
+    }
+
+    pub async fn log(
+        self: &Arc<Self>,
+        allowed: Option<BTreeSet<String>>,
+        id: String,
+        stream: LogStream,
+        offset: u64,
+        limit: usize,
+    ) -> Result<LogPage> {
+        if !(4..=MAX_LOG_READ).contains(&limit) {
+            return Err(Error::new(
+                ErrorCode::InvalidRequest,
+                "log read limit must be 4..=65536 bytes",
+            ));
+        }
+        let (file, record) = self.open_log(allowed, id, stream).await?;
+        let total = match stream {
+            LogStream::Stdout => record.stdout_bytes,
+            LogStream::Stderr => record.stderr_bytes,
+        };
+        let issue = record.archive.and_then(|archive| archive.issue);
+        tokio::task::spawn_blocking(move || {
+            job_archive::page(file, offset, limit, total, record.status, issue).map_err(failure)
+        })
+        .await
+        .map_err(failure)?
+    }
+
+    pub async fn open_log(
+        self: &Arc<Self>,
+        allowed: Option<BTreeSet<String>>,
+        id: String,
+        stream: LogStream,
+    ) -> Result<(File, HistoryRecord)> {
+        let info = self.get(allowed, id.clone(), 0).await?.record;
+        if info.archive.is_none() {
+            return Err(Error::new(
+                ErrorCode::NotFound,
+                "this record only retains the output tail",
+            ));
+        }
+        let home = self.home.clone();
+        let file = tokio::task::spawn_blocking(move || {
+            job_archive::open_log(&home, &id, stream).map_err(failure)
+        })
+        .await
+        .map_err(failure)??;
+        Ok((file, info))
     }
     pub async fn list(
         self: &Arc<Self>,
@@ -147,9 +211,33 @@ impl History {
                 .map_err(failure)?;
             let missing = || Error::new(ErrorCode::NotFound, "no such retained task record");
             let (meta, out, err) = row.ok_or_else(missing)?;
-            let record: HistoryRecord = serde_json::from_str(&meta).map_err(failure)?;
+            let mut record: HistoryRecord = serde_json::from_str(&meta).map_err(failure)?;
             if !visible(&record, &allowed) {
                 return Err(missing());
+            }
+            for step in &mut record.deployment {
+                let Some(id) = step.job_record.as_deref() else {
+                    continue;
+                };
+                let child: Option<String> = db
+                    .conn
+                    .query_row("SELECT meta FROM records WHERE id=?1", [id], |row| {
+                        row.get(0)
+                    })
+                    .optional()
+                    .map_err(failure)?;
+                let Some(child) = child else { continue };
+                let child: HistoryRecord = serde_json::from_str(&child).map_err(failure)?;
+                if visible(&child, &allowed) && child.host == record.host {
+                    step.status = match child.status {
+                        JobStatus::Running => DeploymentStepStatus::Running,
+                        JobStatus::Succeeded => DeploymentStepStatus::Succeeded,
+                        JobStatus::Failed => DeploymentStepStatus::Failed,
+                        JobStatus::Unknown => DeploymentStepStatus::Unknown,
+                    };
+                    step.exit_code = child.exit_code;
+                    step.reason = child.reason;
+                }
             }
             if out.len() > OUTPUT
                 || err.len() > OUTPUT
@@ -261,6 +349,14 @@ impl Db {
             record.reason = Some("client_restarted".into());
             record.exit_code = None;
             record.exit_signal = None;
+            for step in &mut record.deployment {
+                if step.status == DeploymentStepStatus::Running {
+                    step.status = DeploymentStepStatus::Unknown;
+                    step.reason = Some("client_restarted".into());
+                } else if step.status == DeploymentStepStatus::Pending {
+                    step.status = DeploymentStepStatus::Skipped;
+                }
+            }
             tx.execute(
                 "UPDATE records SET terminal=1,meta=?2 WHERE id=?1",
                 params![id, serde_json::to_string(&record).map_err(failure)?],
@@ -269,7 +365,20 @@ impl Db {
         }
         tx.execute("DELETE FROM records WHERE terminal=1 AND id NOT IN (SELECT id FROM records WHERE terminal=1 ORDER BY started DESC,id DESC LIMIT 256)",[]).map_err(failure)?;
         tx.commit().map_err(failure)?;
-        Ok(Self { conn, _lock: lock })
+        let retained = {
+            let mut statement = conn.prepare("SELECT id FROM records").map_err(failure)?;
+            statement
+                .query_map([], |row| row.get(0))
+                .map_err(failure)?
+                .collect::<rusqlite::Result<BTreeSet<String>>>()
+                .map_err(failure)?
+        };
+        let logs = LogStore::open(home, &retained).map_err(|error| error.to_string());
+        Ok(Self {
+            conn,
+            _lock: lock,
+            logs,
+        })
     }
     fn save(&mut self, record: &HistoryRecord, out: &[u8], err: &[u8]) -> Result<()> {
         if out.len() > OUTPUT || err.len() > OUTPUT {
@@ -292,8 +401,20 @@ impl Db {
             }
         }
         tx.execute("INSERT INTO records(id,started,terminal,meta,out,err) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET terminal=excluded.terminal,meta=excluded.meta,out=excluded.out,err=excluded.err WHERE records.terminal=0 OR excluded.terminal=1",params![record.record,record.started_unix_ms as i64,record.status!=JobStatus::Running,serde_json::to_string(record).map_err(failure)?,out,err]).map_err(failure)?;
-        tx.execute("DELETE FROM records WHERE terminal=1 AND id NOT IN (SELECT id FROM records WHERE terminal=1 ORDER BY started DESC,id DESC LIMIT 256)",[]).map_err(failure)?;
+        let evicted = {
+            let mut statement = tx.prepare("DELETE FROM records WHERE terminal=1 AND id NOT IN (SELECT id FROM records WHERE terminal=1 ORDER BY started DESC,id DESC LIMIT 256) RETURNING id").map_err(failure)?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(failure)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(failure)?
+        };
         tx.commit().map_err(failure)?;
+        if let Ok(logs) = &self.logs {
+            for id in evicted {
+                logs.remove(&id);
+            }
+        }
         Ok(())
     }
 }
@@ -321,6 +442,9 @@ mod tests {
             exit_signal: None,
             stdout_bytes: 0,
             stderr_bytes: 0,
+            transfer: None,
+            deployment: Vec::new(),
+            archive: None,
         }
     }
     #[tokio::test]

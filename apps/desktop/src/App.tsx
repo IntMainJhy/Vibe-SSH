@@ -5,14 +5,17 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
-import { call, type Host, type Job, type Space } from "./api";
-import { explain } from "./api";
+import { call, explain, type Host, type HostDraft, type Job, type Space } from "./api";
 import { HostForm } from "./HostForm";
+import { HostImport } from "./HostImport";
+import { Forwards } from "./Forwards";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
+import { QuickSwitch } from "./QuickSwitch";
 import { usePreferences } from "./preferences";
 import { useWorkspace } from "./useWorkspace";
 import { Files } from "./Files";
@@ -28,28 +31,27 @@ const Terminal = lazy(() =>
 type Page = "terminal" | "files" | "resources";
 type Notice = { text: string; kind: "error" | "success" };
 type Act = (key: string, work: () => Promise<unknown>) => Promise<void>;
+const homeTitles: Record<HomeView, string> = {
+  overview: "服务器工作台",
+  servers: "服务器",
+  sessions: "当前会话",
+  history: "任务历史",
+};
 
 export function App() {
-  const { data, error, refreshing, refresh } = useWorkspace();
+  const { data, error, refresh } = useWorkspace();
   const preferences = usePreferences();
   const transfers = useTransfers();
   const [selected, select] = useState<string | null>(null);
-  const [intro, setIntro] = useState(true);
-  const ready = !!data;
-  useEffect(() => {
-    if (!ready) return;
-    const timer = setTimeout(() => setIntro(false), 450);
-    return () => clearTimeout(timer);
-  }, [ready]);
   const [homeView, setHomeView] = useState<HomeView>("overview");
-  const [historyRevision, setHistoryRevision] = useState(0);
   const [views, setViews] = useState<
     Record<string, { page: Page; path: string }>
   >({});
   const [picked, setPicked] = useState<Record<string, string>>({});
-  const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
+  const [searching, setSearching] = useState(false);
   const [editing, setEditing] = useState<Host | "new">();
+  const [importing, setImporting] = useState(false);
+  const [draft, setDraft] = useState<HostDraft>();
   const [notice, setNotice] = useState<Notice>();
   const [quitting, setQuitting] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
@@ -99,11 +101,7 @@ export function App() {
       if (commandKey && !document.querySelector("dialog[open]")) {
         if (event.key.toLowerCase() === "k") {
           event.preventDefault();
-          if (matchMedia("(max-width: 680px)").matches) {
-            select(null);
-            setHomeView("overview");
-          }
-          requestAnimationFrame(() => search.current?.focus());
+          setSearching(true);
         }
         if (event.key.toLowerCase() === "n") {
           event.preventDefault();
@@ -127,21 +125,35 @@ export function App() {
 
   // A closed space returns to the workbench; it never silently selects another terminal.
   const space = data?.spaces.find((s) => s.space === selected);
-  const needle = query.trim().toLocaleLowerCase();
-  const matches = (...text: string[]) =>
-    text.join(" ").toLocaleLowerCase().includes(needle);
-  const hosts =
-    data?.hosts.filter((h) => matches(h.name, h.host, h.username)) ?? [];
-  const sessions =
-    data?.spaces.filter((s) => matches(s.name, s.host_name, s.actor)) ?? [];
+  const sessionPage = (space && views[space.space]?.page) ?? "terminal";
+  const destination = space ? "sessions" : homeView;
+  const spaceId = space?.space;
+  const viewKey = spaceId ? `${spaceId}:${sessionPage}` : homeView;
+  const previousView = useRef({ key: viewKey, spaceId });
+  const viewElement = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const previous = previousView.current;
+    previousView.current = { key: viewKey, spaceId };
+    if (previous.key === viewKey || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const main = viewElement.current;
+    // Within a session, keep the tab strip fixed while the selected content enters.
+    const target = spaceId && previous.spaceId === spaceId
+      ? main?.querySelector(".terminal-shell, .files-page, .resources-page")
+      : main;
+    const animation = target?.animate(
+      [{ opacity: 0.78, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }],
+      { duration: 240, easing: "cubic-bezier(.22, .8, .24, 1)" },
+    );
+    return () => animation?.cancel();
+  }, [viewKey, spaceId]);
+  const hosts = data?.hosts ?? [];
+  const sessions = data?.spaces ?? [];
   const goHome = (view: HomeView = "overview") => {
     select(null);
     setHomeView(view);
-    setQuery("");
   };
   const goSpace = (id: string, page?: Page, job?: string) => {
     select(id);
-    setQuery("");
     if (page)
       setViews((old) => ({
         ...old,
@@ -167,387 +179,223 @@ export function App() {
     ) ?? [];
   return (
     <div
-      className="app"
+      className="app workspace-layout"
       data-agent-active={agents.length > 0}
       data-session={!!space}
       data-view={space ? "session" : homeView}
-      data-intro={intro}
     >
-      <div className="desktop-drag" data-tauri-drag-region aria-hidden="true" />
-      <aside className="app-rail" aria-label="主导航">
-        <button
-          className="rail-brand"
-          aria-label="Vibe-SSH 总览"
-          title="Vibe-SSH"
-          onClick={() => goHome()}
-        >
-          <img src={brandIcon} alt="" width={42} height={42} />
-        </button>
-        <nav>
-          {(
-            [
-              ["overview", "grid", "总览"],
-              ["servers", "server", "服务器"],
-              ["sessions", "terminal", "会话"],
-              ["history", "history", "历史"],
-            ] as const
-          ).map(([view, icon, label]) => (
-            <button
-              key={view}
-              className="rail-button"
-              aria-label={label}
-              aria-current={
-                (space ? view === "sessions" : homeView === view)
-                  ? "page"
-                  : undefined
-              }
-              onClick={() => goHome(view)}
-            >
-              <Icon name={icon} size={19} />
-              <span>{label}</span>
+      <header className="workspace-toolbar" data-tauri-drag-region>
+        {space ? (
+          <label className="session-switcher" title="切换会话">
+            <Icon name="terminal" size={16} />
+            <span aria-hidden="true">切换会话</span>
+            <Icon name="chevron" size={13} />
+            <select aria-label="切换会话" value={space.space} onChange={e => goSpace(e.target.value)}>
+              {sessions.map(s => (
+                <option key={s.space} value={s.space}>
+                  {s.origin === "agent" ? `${s.actor} · ${s.name}` : s.host_name}{!s.connected ? "（已断开）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="workspace-toolbar-actions">
+            {homeView === "servers" && (
+              <button className="import-server" aria-label="导入配置" title="导入配置" onClick={() => setImporting(true)}>
+                <Icon name="folder" size={15} />
+                <span>导入配置</span>
+              </button>
+            )}
+            <button className="add-server" aria-label="添加服务器" title="添加服务器（⌘N）" onClick={() => setEditing("new")}>
+              <Icon name="plus" size={16} />
+              <span>添加服务器</span>
             </button>
-          ))}
-        </nav>
-        <div className="rail-bottom">
-          <button
-            className="icon-button rail-search"
-            aria-label="搜索服务器或会话"
-            title="搜索（⌘K）"
-            onClick={() => {
-              select(null);
-              setHomeView("overview");
-              requestAnimationFrame(() => search.current?.focus());
-            }}
-          >
-            <Icon name="search" size={18} />
+          </div>
+        )}
+      </header>
+      <div className="workspace-rail">
+        <nav className="workspace-navigation" aria-label="工作台页面">
+          <button className="workspace-brand" aria-label="Vibe-SSH 总览" onClick={() => goHome()}>
+            <img src={brandIcon} alt="" width={42} height={42} />
           </button>
-          <label className="rail-appearance" title="界面外观">
-            <Icon
-              name={preferences.theme === "dark" ? "moon" : "sun"}
-              size={19}
-            />
-            <select
-              aria-label="界面外观"
-              value={preferences.theme}
-              onChange={(e) =>
-                preferences.setTheme(e.target.value as typeof preferences.theme)
-              }
-            >
+          <div className="workspace-destinations" data-page={destination}>
+            {([
+              ["overview", "grid", "工作台"],
+              ["servers", "server", "服务器"],
+              ["sessions", "terminal", "全部会话"],
+              ["history", "history", "任务历史"],
+            ] as const).map(([view, icon, label]) => (
+              <button key={view} aria-label={label} title={label}
+                aria-current={!space && homeView === view ? "page" : undefined}
+                data-selected={destination === view}
+                onClick={() => goHome(view)}>
+                <Icon name={icon} size={19} />
+              </button>
+            ))}
+          </div>
+        </nav>
+        <div className="workspace-appearance">
+          <label title="界面外观">
+            <Icon name={preferences.theme === "dark" ? "moon" : "sun"} size={16} />
+            <select aria-label="界面外观" value={preferences.theme} onChange={e => preferences.setTheme(e.target.value as typeof preferences.theme)}>
               <option value="system">跟随系统</option>
               <option value="light">浅色模式</option>
               <option value="dark">深色模式</option>
             </select>
           </label>
-          <span
-            className="rail-status"
-            title={error ? "服务异常" : data ? "已就绪" : "连接中"}
-            role="status"
-          >
-            <span
-              className="dot"
-              data-status={error ? "unknown" : data ? "succeeded" : "running"}
-            />
-            <span className="sr-only">
-              {error ? "服务异常" : data ? "已就绪" : "连接中"}
-            </span>
-          </span>
         </div>
-      </aside>
-      {space && (
-        <aside className="sidebar">
-          <div className="context-heading">
-            <strong>工作空间</strong>
-            <span>{data?.spaces.length ?? 0}</span>
+      </div>
+      <div className="workspace-surface">
+        <aside className="workspace-explorer" aria-label="会话和服务器">
+          <h2 className="workspace-explorer-title">工作空间</h2>
+          <div className="workspace-explorer-list" tabIndex={0}>
+            <Section title="我的会话" count={sessions.filter(s => s.origin === "human").length}>
+              {sessions.filter(s => s.origin === "human").map(s => <button className="workspace-session" key={s.space}
+                aria-current={s.space === space?.space ? "page" : undefined} onClick={() => goSpace(s.space)} title={s.host_name}>
+                <Icon name="terminal" size={16} /><span>{s.host_name}<small>{s.connected ? "个人终端" : "连接已断开"}</small></span>
+                <span className="dot" data-status={s.connected ? "succeeded" : "unknown"} />
+              </button>)}
+              {!sessions.some(s => s.origin === "human") && <p className="nav-empty">连接服务器，开始工作。</p>}
+            </Section>
+            {sessions.some(s => s.origin === "agent") && <Section title="Agent 空间" count={sessions.filter(s => s.origin === "agent").length}>
+              {sessions.filter(s => s.origin === "agent").map(s => <button className="workspace-session" key={s.space}
+                aria-current={s.space === space?.space ? "page" : undefined} onClick={() => goSpace(s.space)} title={`${s.host_name} · ${s.name}`}>
+                <Icon name="link" size={16} /><span>{s.name}<small>{!s.connected ? "连接已断开" : s.control.note ? "等待你处理" : s.control.owner === "human" ? "你已接管" : `${s.actor} 操作中`}</small></span>
+                {s.control.note || failedJobs(s) > 0 ? <Icon name="alert" size={14} /> : <span className="dot" data-status={s.jobs.some(j => j.status === "running") ? "running" : "succeeded"} />}
+              </button>)}
+            </Section>}
+            <Section title="快速连接" count={hosts.length} action={<button className="icon-button" aria-label="添加服务器" title="添加服务器（⌘N）" onClick={() => setEditing("new")}><Icon name="plus" size={15} /></button>}>
+              {hosts.map(host => <div className="workspace-host" key={host.id}>
+                <button title={`新建连接 · ${host.username}@${host.host}:${host.port}`} disabled={pending.includes(`connect:${host.id}`)} onClick={() => void openTerminal(host)}>
+                  <Icon name="server" size={15} /><span>{host.name}<small>{pending.includes(`connect:${host.id}`) ? "正在连接…" : host.host}</small></span>
+                </button>
+                <button className="icon-button" aria-label={`设置 ${host.name}`} onClick={() => setEditing(host)}><Icon name="settings" size={14} /></button>
+              </div>)}
+            </Section>
           </div>
-          <button className="nav-home" onClick={() => goHome()}>
-            <Icon name="back" size={15} />
-            返回总览
-          </button>
-          <nav aria-label="服务器和会话">
-            <Section
-              title="服务器"
-              count={hosts.length}
-              action={
-                <button
-                  className="icon-button"
-                  aria-label="添加服务器"
-                  title="添加服务器（⌘N）"
-                  onClick={() => setEditing("new")}
-                >
-                  <Icon name="plus" size={16} />
-                </button>
-              }
-            >
-              {hosts.map((host) => (
-                <div className="host-nav" key={host.id}>
-                  <button
-                    className="host-nav-main"
-                    title={`${host.username}@${host.host}:${host.port}`}
-                    disabled={pending.includes(`connect:${host.id}`)}
-                    onClick={() => void openTerminal(host)}
-                  >
-                    <span className="server-glyph">
-                      <Icon name="server" size={17} />
-                    </span>
-                    <span className="nav-text">
-                      <strong>{host.name}</strong>
-                      <small>
-                        {pending.includes(`connect:${host.id}`)
-                          ? "正在连接…"
-                          : host.host}
-                      </small>
-                    </span>
-                  </button>
-                  <button
-                    className="icon-button settings"
-                    aria-label={`设置 ${host.name}`}
-                    onClick={() => setEditing(host)}
-                  >
-                    <Icon name="settings" size={15} />
-                  </button>
-                </div>
-              ))}
-              {!hosts.length && (
-                <p className="nav-empty">
-                  {query ? "没有匹配的服务器" : "还没有添加服务器"}
-                </p>
-              )}
-            </Section>
-            <Section title="会话" count={sessions.length}>
-              {sessions.map((s) => (
-                <button
-                  className="session-nav"
-                  key={s.space}
-                  data-active={s.space === space?.space}
-                  onClick={() => goSpace(s.space)}
-                >
-                  <span className="session-icon" data-kind={s.origin}>
-                    <Icon
-                      name={s.origin === "agent" ? "link" : "terminal"}
-                      size={17}
-                    />
-                  </span>
-                  <span className="nav-text">
-                    <strong>
-                      {s.origin === "agent" ? s.name : s.host_name}
-                    </strong>
-                    <small>
-                      {!s.connected
-                        ? "连接已断开"
-                        : s.control.note
-                          ? "等待你处理"
-                          : s.origin === "agent"
-                            ? s.control.owner === "human"
-                              ? "你已接管"
-                              : "Agent 操作"
-                            : "我的终端"}
-                      {failedJobs(s) > 0 && (
-                        <span className="failure-note">
-                          {" "}
-                          · {failedJobs(s)} 项失败
-                        </span>
-                      )}
-                    </small>
-                  </span>
-                  <span
-                    className="dot"
-                    data-status={
-                      !s.connected
-                        ? "unknown"
-                        : s.jobs.some((j) => j.status === "running")
-                          ? "running"
-                          : "succeeded"
-                    }
-                  />
-                </button>
-              ))}
-              {!sessions.length && (
-                <p className="nav-empty">
-                  {query ? "没有匹配的会话" : "连接服务器后，会话出现在这里"}
-                </p>
-              )}
-            </Section>
-          </nav>
-          <div className="context-footer">
-            <Icon name="shield" size={14} />
-            <span>独立连接 · 随时接管</span>
+          <div className="workspace-explorer-status" role="status">
+            <span className="dot" data-status={error ? "unknown" : data ? "succeeded" : "running"} />
+            {error ? "服务异常" : data ? "服务已就绪" : "连接中"}
           </div>
         </aside>
-      )}
-      <main className={`main ${space ? "in-session" : ""}`}>
-        <header className="window-bar" data-tauri-drag-region>
-          <div className="topbar-heading">
-            <div className="breadcrumbs">
-              <button onClick={() => goHome()}>Vibe-SSH</button>
-              <span>/</span>
-              <span>
-                {space
-                  ? space.host_name
-                  : homeView === "servers"
-                    ? "服务器"
-                    : homeView === "sessions"
-                      ? "会话"
-                      : homeView === "history"
-                        ? "历史"
-                        : "工作台"}
-              </span>
-            </div>
-            {!space && (
-              <h1>
-                {homeView === "servers"
-                  ? "服务器"
-                  : homeView === "sessions"
-                    ? "当前会话"
-                    : homeView === "history"
-                      ? "任务历史"
-                      : "服务器工作台"}
-              </h1>
+        <div className="workspace-detail">
+          <main
+            className={`main ${space ? "in-session" : ""}`}
+            aria-label={space ? undefined : homeTitles[homeView]}
+            ref={viewElement}
+          >
+            {data?.integration &&
+            (data.integration.error || data.integration.skipped?.length) ? (
+              <p className="integration-warning" role="status">
+                接入配置需要处理：已有同名内容或目录不可写。请检查配置目录。
+              </p>
+            ) : null}
+            {error && (
+              <div className="error-banner" role="alert">
+                <Icon name="alert" size={16} />
+                <span>{error}</span>
+                <button onClick={() => void refresh()}>重试</button>
+              </div>
             )}
-          </div>
-          <div className="topbar-actions">
-            <label className="search">
-              <Icon name="search" size={15} />
-              <input
-                ref={search}
-                aria-label="搜索服务器或会话"
-                placeholder="搜索服务器、地址或会话…"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  if (homeView === "history" && e.target.value)
-                    setHomeView("overview");
-                  if (e.target.value) select(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setQuery("");
-                    search.current?.blur();
-                  }
-                }}
+            {data?.status.history?.error && (
+              <p className="form-error" role="alert">
+                {data.status.history.error}
+              </p>
+            )}
+            {!data ? (
+              <div className="loading">
+                <Icon name="terminal" size={32} />
+                <p>{error ? "无法加载工作台" : "正在加载工作空间…"}</p>
+                <button onClick={() => void refresh()}>重新加载</button>
+              </div>
+            ) : space ? (
+              <Session
+                key={space.space}
+                space={space}
+                host={data.hosts.find((h) => h.id === space.host)}
+                job={
+                  space.jobs.find((j) => j.job === picked[space.space]) ??
+                  space.jobs.at(-1)
+                }
+                onPick={(job) =>
+                  setPicked((previous) => ({ ...previous, [space.space]: job }))
+                }
+                fontSize={preferences.fontSize}
+                setFontSize={preferences.setFontSize}
+                act={act}
+                pending={pending}
+                onError={notify}
+                copy={copy}
+                onReconnect={openTerminal}
+                page={sessionPage}
+                onPage={(page) =>
+                  setViews((old) => ({
+                    ...old,
+                    [space.space]: { path: old[space.space]?.path ?? ".", page },
+                  }))
+                }
+                filePath={views[space.space]?.path ?? "."}
+                onDirectory={(path) =>
+                  setViews((old) => ({
+                    ...old,
+                    [space.space]: {
+                      page: old[space.space]?.page ?? "files",
+                      path,
+                    },
+                  }))
+                }
+                transfer={transfers.transfer}
+                transferRevision={transfers.revision}
               />
-              <kbd>⌘ K</kbd>
-            </label>
-            <button
-              className="icon-button topbar-refresh"
-              aria-label="刷新状态"
-              title="刷新状态"
-              disabled={refreshing}
-              onClick={() => {
-                void refresh();
-                setHistoryRevision((n) => n + 1);
-              }}
-            >
-              <Icon name="refresh" size={17} />
-            </button>
-            {!space && (
-              <button className="add-server" onClick={() => setEditing("new")}>
-                <Icon name="plus" size={16} />
-                添加服务器
-              </button>
+            ) : homeView === "history" ? (
+              <History revision={transfers.revision} />
+            ) : (
+              <Workbench
+                data={data}
+                hosts={hosts}
+                query=""
+                pending={pending}
+                onConnect={openTerminal}
+                onEdit={setEditing}
+                sessions={sessions}
+                view={homeView}
+                onView={goHome}
+                onSelect={goSpace}
+              />
             )}
-          </div>
-        </header>
-        {data?.integration &&
-        (data.integration.error || data.integration.skipped?.length) ? (
-          <p className="integration-warning" role="status">
-            接入配置需要处理：已有同名内容或目录不可写。请检查配置目录。
-          </p>
-        ) : null}
-        {error && (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" size={16} />
-            <span>{error}</span>
-            <button onClick={() => void refresh()}>重试</button>
-          </div>
-        )}
-        {data?.status.history?.error && (
-          <p className="form-error" role="alert">
-            {data.status.history.error}
-          </p>
-        )}
-        {!data ? (
-          <div className="loading">
-            <Icon name="terminal" size={32} />
-            <p>{error ? "无法加载工作台" : "正在加载工作空间…"}</p>
-            <button onClick={() => void refresh()}>重新加载</button>
-          </div>
-        ) : space ? (
-          <Session
-            key={space.space}
-            space={space}
-            host={data.hosts.find((h) => h.id === space.host)}
-            job={
-              space.jobs.find((j) => j.job === picked[space.space]) ??
-              space.jobs.at(-1)
-            }
-            onPick={(job) =>
-              setPicked((previous) => ({ ...previous, [space.space]: job }))
-            }
-            fontSize={preferences.fontSize}
-            setFontSize={preferences.setFontSize}
-            act={act}
-            pending={pending}
-            onError={notify}
-            copy={copy}
-            onReconnect={openTerminal}
-            page={views[space.space]?.page ?? "terminal"}
-            onPage={(page) =>
-              setViews((old) => ({
-                ...old,
-                [space.space]: { path: old[space.space]?.path ?? ".", page },
-              }))
-            }
-            filePath={views[space.space]?.path ?? "."}
-            onDirectory={(path) =>
-              setViews((old) => ({
-                ...old,
-                [space.space]: {
-                  page: old[space.space]?.page ?? "files",
-                  path,
-                },
-              }))
-            }
-            transfer={transfers.transfer}
-            transferRevision={transfers.revision}
-          />
-        ) : homeView === "history" ? (
-          <History revision={historyRevision} />
-        ) : (
-          <Workbench
-            data={data}
-            hosts={hosts}
-            query={query}
-            pending={pending}
-            onConnect={openTerminal}
-            onEdit={setEditing}
-            sessions={sessions}
-            view={homeView}
-            onView={goHome}
-            onSelect={goSpace}
-          />
-        )}
-      </main>
-      {agents.length > 0 && (
-        <button
-          className="agent-activity"
-          aria-label={`${agents[0].actor} 正在操作 ${agents[0].name}，点击查看空间`}
-          onClick={() => goSpace(agents[0].space)}
-          title={agents.map((s) => `${s.actor} · ${s.name}`).join("\n")}
-        >
-          <span className="activity-orb" />
-          <span>
-            {agents[0].actor} 正在操作 · {agents[0].name}
-            {agents.length > 1 ? ` +${agents.length - 1}` : ""}
-          </span>
-          <Icon name="arrow" size={14} />
-        </button>
-      )}
-      <TransferTray state={transfers} />
+          </main>
+          {agents.length > 0 && (
+            <button
+              className="agent-activity"
+              aria-label={`${agents[0].actor} 正在操作 ${agents[0].name}，点击查看空间`}
+              onClick={() => goSpace(agents[0].space)}
+              title={agents.map((s) => `${s.actor} · ${s.name}`).join("\n")}
+            >
+              <span className="activity-orb" />
+              <span>
+                {agents[0].actor} 正在操作 · {agents[0].name}
+                {agents.length > 1 ? ` +${agents.length - 1}` : ""}
+              </span>
+              <Icon name="arrow" size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+      <TransferTray state={transfers} spaces={data?.spaces ?? []} selected={selected} />
+      {searching && <QuickSwitch hosts={hosts} spaces={sessions} onSelect={goSpace} onConnect={openTerminal} onClose={() => setSearching(false)} />}
+      {importing && <HostImport onClose={() => setImporting(false)} onSelect={(host) => {
+        setImporting(false);
+        setDraft(host);
+        setEditing("new");
+      }} />}
       {editing && (
         <HostForm
           initial={editing === "new" ? undefined : editing}
+          draft={draft}
+          hosts={data?.hosts ?? []}
           onClose={() => {
             setEditing(undefined);
+            setDraft(undefined);
             void refresh();
           }}
         />
@@ -612,7 +460,7 @@ function Section({
   return (
     <section className="nav-section">
       <div className="section-label">
-        <h2>{title}</h2>
+        <h3>{title}</h3>
         <span>{count}</span>
         {action}
       </div>
@@ -659,9 +507,10 @@ function Session({
   transferRevision: number;
 }) {
   const [closing, setClosing] = useState(false);
-  const [clear, setClear] = useState(0);
+  const [showForwards, setShowForwards] = useState(false);
   const held = space.control.owner === "human";
   const byAgent = space.origin === "agent";
+  const accessDisabled = byAgent && !host?.agent_access;
   const id = space.space;
   const busy = pending.includes(`space:${id}`);
   const writable = held && space.connected && job?.status === "running";
@@ -691,7 +540,8 @@ function Session({
           </div>
         </div>
         <div className="actions">
-          {byAgent && space.connected && (
+          {!byAgent && space.connected && <button className="icon-button" aria-label="端口转发" title="端口转发" onClick={() => setShowForwards(true)}><Icon name="link" size={17} /></button>}
+          {byAgent && space.connected && (!held || !accessDisabled) && (
             <button
               className={held ? "give" : "take"}
               disabled={busy}
@@ -729,12 +579,13 @@ function Session({
           </button>
         </div>
       </header>
-      {space.control.note && (
+      {showForwards && space.connected && <Forwards space={id} onClose={() => setShowForwards(false)} />}
+      {(accessDisabled || space.control.note) && (
         <div className="handoff" role="status">
           <Icon name="alert" size={18} />
           <div>
-            <strong>需要你处理</strong>
-            <p>{space.control.note}</p>
+            <strong>{accessDisabled ? "Agent 接入已关闭" : "需要你处理"}</strong>
+            <p>{accessDisabled ? "此会话由你控制，仍可查看输出或中断任务。" : space.control.note}</p>
           </div>
         </div>
       )}
@@ -851,42 +702,6 @@ function Session({
           </div>
           {job ? (
             <>
-              <div className="terminal-tools">
-                <span>
-                  <Icon name="terminal" size={14} />
-                  {job.pty ? "交互终端" : "命令输出"}
-                </span>
-                <div>
-                  <button
-                    aria-label="缩小终端字号"
-                    disabled={fontSize <= 11}
-                    onClick={() => setFontSize(fontSize - 1)}
-                  >
-                    A−
-                  </button>
-                  <span>{fontSize}px</span>
-                  <button
-                    aria-label="放大终端字号"
-                    disabled={fontSize >= 20}
-                    onClick={() => setFontSize(fontSize + 1)}
-                  >
-                    A+
-                  </button>
-                  <i />
-                  <button onClick={() => setClear((n) => n + 1)}>
-                    清空显示
-                  </button>
-                  {job.command && (
-                    <button
-                      title="复制完整命令"
-                      onClick={() => void copy(job.command!)}
-                    >
-                      <Icon name="copy" size={14} />
-                      复制命令
-                    </button>
-                  )}
-                </div>
-              </div>
               <div
                 id="terminal-panel"
                 className="terminal-panel"
@@ -903,7 +718,8 @@ function Session({
                     pty={job.pty}
                     writable={Boolean(writable)}
                     fontSize={fontSize}
-                    clear={clear}
+                    onFontSize={setFontSize}
+                    onCopyCommand={job.command ? () => void copy(job.command!) : undefined}
                     onError={onError}
                   />
                 </Suspense>

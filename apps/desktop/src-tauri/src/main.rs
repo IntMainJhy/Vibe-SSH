@@ -4,13 +4,14 @@
 use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
 mod credentials;
+mod ssh_import;
 use credentials::Credentials;
 use serde_json::{Value, json};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, State};
 mod workbench;
 use vibe_ssh_core::{By, Chunk, Error, ErrorCode, Host, Service, default_home, serve, skill};
-use vibe_ssh_protocol::{ErrorBody, Owner, SpaceView};
+use vibe_ssh_protocol::{ErrorBody, LogPage, LogStream, Owner, SpaceView};
 
 #[cfg(test)]
 #[path = "../../../../crates/cli/tests/support/sshd.rs"]
@@ -28,6 +29,42 @@ fn invalid(message: &str) -> ErrorBody {
         code: ErrorCode::InvalidRequest,
         message: message.into(),
     }
+}
+
+#[tauri::command]
+async fn export_terminal(text: String) -> Reply<bool> {
+    if text.len() > 4 * 1024 * 1024 {
+        return Err(invalid("终端文本超过 4 MiB，请选择一段文本复制。"));
+    }
+    let Some(selected) = rfd::AsyncFileDialog::new()
+        .set_title("导出终端文本")
+        .set_file_name("terminal.txt")
+        .add_filter("文本文件", &["txt"])
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    let destination = selected.path().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write;
+        let parent = destination
+            .parent()
+            .ok_or_else(|| invalid("保存位置无效。"))?;
+        let report = |error: std::io::Error| invalid(&format!("导出终端文本失败：{error}"));
+        let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(report)?;
+        staged
+            .as_file_mut()
+            .write_all(text.as_bytes())
+            .map_err(report)?;
+        staged.as_file().sync_all().map_err(report)?;
+        staged
+            .persist(&destination)
+            .map_err(|error| report(error.error))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| invalid("导出任务未能完成。"))?
 }
 
 fn user_home() -> PathBuf {
@@ -58,8 +95,67 @@ async fn snapshot(
 
 /// Shows the server's key so the user can compare it with a trusted source before saving.
 #[tauri::command]
-async fn host_key(host: String, port: u16) -> Reply<(String, String)> {
-    vibe_ssh_core::host_key(&host, port).await.map_err(fail)
+async fn host_key(
+    kernel: Kernel<'_>,
+    host: String,
+    port: u16,
+    jump_host: Option<String>,
+    proxy: Option<vibe_ssh_core::ProxySettings>,
+) -> Reply<(String, String)> {
+    kernel
+        .probe_host(&host, port, jump_host.as_deref(), proxy.as_ref())
+        .await
+        .map_err(fail)
+}
+
+#[tauri::command]
+async fn list_forwards(
+    kernel: Kernel<'_>,
+    space: String,
+) -> Reply<Vec<vibe_ssh_core::LocalForward>> {
+    kernel.list_forwards(&space).await.map_err(fail)
+}
+#[tauri::command]
+async fn start_forward(
+    kernel: Kernel<'_>,
+    space: String,
+    local_port: u16,
+    target: String,
+    target_port: u16,
+) -> Reply<vibe_ssh_core::LocalForward> {
+    kernel
+        .start_forward(&space, local_port, target, target_port)
+        .await
+        .map_err(fail)
+}
+
+#[tauri::command]
+async fn start_dynamic_forward(
+    kernel: Kernel<'_>,
+    space: String,
+    local_port: u16,
+) -> Reply<vibe_ssh_core::LocalForward> {
+    kernel
+        .start_dynamic_forward(&space, local_port)
+        .await
+        .map_err(fail)
+}
+#[tauri::command]
+async fn stop_forward(kernel: Kernel<'_>, space: String, id: String) -> Reply<()> {
+    kernel.stop_forward(&space, &id).await.map_err(fail)
+}
+
+#[tauri::command]
+async fn start_remote_forward(
+    kernel: Kernel<'_>,
+    space: String,
+    remote_port: u16,
+    local_port: u16,
+) -> Reply<vibe_ssh_core::LocalForward> {
+    kernel
+        .start_remote_forward(&space, remote_port, local_port)
+        .await
+        .map_err(fail)
 }
 
 #[tauri::command]
@@ -80,6 +176,69 @@ async fn history_get(
     tail: usize,
 ) -> Reply<vibe_ssh_protocol::HistoryDetail> {
     kernel.history_get(&record, tail, false).await.map_err(fail)
+}
+
+#[tauri::command]
+async fn history_log(
+    kernel: Kernel<'_>,
+    record: String,
+    stream: LogStream,
+    offset: u64,
+) -> Reply<LogPage> {
+    kernel
+        .history_log(
+            &record,
+            stream,
+            offset,
+            vibe_ssh_protocol::MAX_LOG_READ,
+            false,
+        )
+        .await
+        .map_err(fail)
+}
+
+#[tauri::command]
+async fn export_history_log(kernel: Kernel<'_>, record: String, stream: LogStream) -> Reply<bool> {
+    use std::io::Read;
+    let file = kernel
+        .open_history_log(&record, stream)
+        .await
+        .map_err(fail)?;
+    let stream_name = match stream {
+        LogStream::Stdout => "stdout",
+        LogStream::Stderr => "stderr",
+    };
+    let Some(selected) = rfd::AsyncFileDialog::new()
+        .set_title("保存原始日志")
+        .set_file_name(format!("vibe-ssh-{record}-{stream_name}.log"))
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    let path = selected.path().to_path_buf();
+    let limit = file
+        .metadata()
+        .map_err(|error| invalid(&error.to_string()))?
+        .len()
+        .min(64 * 1024 * 1024);
+    tauri::async_runtime::spawn_blocking(move || {
+        let write = || -> std::io::Result<()> {
+            let mut output = tempfile::NamedTempFile::new_in(
+                path.parent()
+                    .ok_or_else(|| std::io::Error::other("invalid save path"))?,
+            )?;
+            std::io::copy(&mut file.take(limit), output.as_file_mut())?;
+            output.as_file().sync_all()?;
+            output.persist(path).map_err(|error| error.error)?;
+            Ok(())
+        };
+        write()
+            .map(|_| true)
+            .map_err(|error| invalid(&format!("保存日志失败：{error}")))
+    })
+    .await
+    .map_err(|_| invalid("保存日志未完成。"))?
 }
 
 #[tauri::command]
@@ -104,6 +263,9 @@ async fn save_host(
         ));
     }
     if let Some(path) = &host.identity_file {
+        if host.ssh_agent {
+            return Err(invalid("请选择私钥文件或 SSH 密钥代理中的一种。"));
+        }
         let path = match path.strip_prefix("~") {
             Ok(rest) => user_home().join(rest),
             Err(_) => path.clone(),
@@ -113,11 +275,11 @@ async fn save_host(
         }
         host.identity_file = Some(path);
     }
-    let mut hosts = kernel.load_hosts().map_err(fail)?;
     if host.id.is_empty() {
         host.id = uuid::Uuid::new_v4().simple().to_string()[..8].to_owned();
     }
-    if let Some(secret) = secret.filter(|secret| !secret.is_empty()) {
+    kernel.validate_route(&host).map_err(fail)?;
+    if let Some(secret) = secret.filter(|secret| !host.ssh_agent && !secret.is_empty()) {
         credentials
             .set(&host.id, secret.as_bytes())
             .map_err(|e| ErrorBody {
@@ -125,11 +287,15 @@ async fn save_host(
                 message: format!("Keychain: {e}"),
             })?;
     }
-    match hosts.iter_mut().find(|known| known.id == host.id) {
-        Some(known) => *known = host.clone(),
-        None => hosts.push(host.clone()),
-    }
-    kernel.save_hosts(&hosts).map_err(fail)?;
+    kernel
+        .update_hosts(
+            |hosts| match hosts.iter_mut().find(|known| known.id == host.id) {
+                Some(known) => *known = host.clone(),
+                None => hosts.push(host.clone()),
+            },
+        )
+        .await
+        .map_err(fail)?;
     Ok(host)
 }
 
@@ -139,9 +305,10 @@ async fn delete_host(
     credentials: State<'_, Credentials>,
     id: String,
 ) -> Reply<()> {
-    let mut hosts = kernel.load_hosts().map_err(fail)?;
-    hosts.retain(|host| host.id != id);
-    kernel.save_hosts(&hosts).map_err(fail)?;
+    kernel
+        .update_hosts(|hosts| hosts.retain(|host| host.id != id))
+        .await
+        .map_err(fail)?;
     credentials.delete(&id);
     Ok(())
 }
@@ -290,8 +457,16 @@ fn commands<R: tauri::Runtime>(
         Box::new(tauri::generate_handler![
             snapshot,
             host_key,
+            list_forwards,
+            start_forward,
+            start_dynamic_forward,
+            start_remote_forward,
+            stop_forward,
+            ssh_import::choose_ssh_config,
             history_list,
             history_get,
+            history_log,
+            export_history_log,
             save_host,
             delete_host,
             open_terminal,
@@ -308,14 +483,26 @@ fn commands<R: tauri::Runtime>(
             workbench::forget_diff,
             workbench::rescan_diff,
             workbench::compare_directory,
+            workbench::apply_directory,
             workbench::text_file,
             workbench::save_text,
             workbench::forget_text,
             workbench::resources,
             workbench::file_action,
             workbench::upload_files,
-            workbench::download_file,
+            workbench::uploads::pending_uploads,
+            workbench::uploads::resume_upload,
+            workbench::uploads::discard_upload,
+            workbench::downloads::download_file,
+            workbench::downloads::pending_downloads,
+            workbench::downloads::resume_download,
+            workbench::downloads::discard_download,
+            workbench::folders::transfer_folder,
+            workbench::folders::pending_folders,
+            workbench::folders::resume_folder,
+            workbench::folders::discard_folder,
             workbench::cancel_transfer,
+            export_terminal,
             exit_app,
             copy_text,
             ui_report
@@ -633,6 +820,7 @@ mod tests {
         let project = sshd.path("compare-project");
         std::fs::create_dir(&project).unwrap();
         std::fs::write(project.join("选择.txt"), "same").unwrap();
+        std::fs::write(project.join("新增.txt"), "reviewed").unwrap();
         std::fs::write(directory.join("选择.txt"), "same").unwrap();
         let manifest = vibe_ssh_core::diff::scan(&project, &[]).unwrap();
         app.state::<super::workbench::DiffSources>()
@@ -643,7 +831,13 @@ mod tests {
             json!({"id":"chosen","selected":["选择.txt"],"space":mine,"remote":directory}),
         )
         .unwrap();
-        assert_eq!(preview["entries"][0]["status"], "same");
+        assert!(
+            preview["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["status"] == "same")
+        );
         assert!(
             invoke(
                 &webview,
@@ -652,7 +846,89 @@ mod tests {
             )
             .is_err()
         );
+        let preview = invoke(
+            &webview,
+            "compare_directory",
+            json!({"id":"chosen","selected":["新增.txt"],"space":mine,"remote":directory}),
+        )
+        .unwrap();
+        assert_eq!(preview["apply"]["paths"][0]["path"], "新增.txt");
+        let review = json!({"id":"chosen","revision":preview["apply"]["revision"],"space":mine});
+        let receipt = invoke(&webview, "apply_directory", review.clone()).unwrap();
+        assert_eq!(receipt["applied"][0]["path"], "新增.txt");
+        assert_eq!(
+            std::fs::read(directory.join("新增.txt")).unwrap(),
+            b"reviewed"
+        );
+        assert!(invoke(&webview, "apply_directory", review).is_err());
         invoke(&webview, "forget_diff", json!({"id":"chosen"})).unwrap();
+        let local_folder = sshd.path("续传目录");
+        std::fs::create_dir(&local_folder).unwrap();
+        let content = vec![0x73; 2 * vibe_ssh_protocol::MAX_INPUT];
+        std::fs::write(local_folder.join("文件.bin"), &content).unwrap();
+        let transfers = app.state::<super::workbench::Transfers>();
+        let upload_id = block(super::workbench::folders::paused_fixture(
+            &service,
+            &transfers,
+            mine,
+            &local_folder,
+            directory.to_str().unwrap(),
+            true,
+        ));
+        let queue = invoke(&webview, "pending_folders", json!({})).unwrap();
+        assert_eq!(queue[0]["id"], upload_id);
+        assert_eq!(queue[0]["direction"], "upload");
+        invoke(
+            &webview,
+            "resume_folder",
+            json!({"id":upload_id,"space":mine}),
+        )
+        .unwrap();
+        let remote_folder = directory.join("续传目录");
+        let local_parent = sshd.path("folder-downloads");
+        std::fs::create_dir(&local_parent).unwrap();
+        let download_id = block(super::workbench::folders::paused_fixture(
+            &service,
+            &transfers,
+            mine,
+            &local_parent,
+            remote_folder.to_str().unwrap(),
+            false,
+        ));
+        let queue = invoke(&webview, "pending_folders", json!({})).unwrap();
+        assert_eq!(queue[0]["id"], download_id);
+        assert_eq!(queue[0]["direction"], "download");
+        invoke(
+            &webview,
+            "resume_folder",
+            json!({"id":download_id,"space":mine}),
+        )
+        .unwrap();
+        assert_eq!(
+            invoke(&webview, "pending_folders", json!({})).unwrap(),
+            json!([])
+        );
+        assert_eq!(
+            std::fs::read(local_parent.join("续传目录/文件.bin")).unwrap(),
+            content
+        );
+
+        let log_job = block(service.run(
+            By::Human(mine),
+            Some("printf '归档验收'".into()),
+            None,
+            None,
+        ))
+        .unwrap();
+        let log_job = block(service.job_settled(&log_job, 5_000, 32, false)).unwrap();
+        let raw = invoke(
+            &webview,
+            "history_log",
+            json!({"record":log_job.record,"stream":"stdout","offset":0}),
+        )
+        .unwrap();
+        assert_eq!(raw["text"], "归档验收");
+        assert_eq!(raw["complete"], true);
         let history = invoke(&webview, "history_list", json!({"offset":0,"limit":50})).unwrap();
         let personal = history["records"]
             .as_array()
@@ -670,6 +946,27 @@ mod tests {
         assert!(
             block(service.history_get(personal["record"].as_str().unwrap(), 8192, true)).is_err(),
             "human history is visible only on the human bridge"
+        );
+        let mut disabled = saved;
+        disabled["agent_access"] = json!(false);
+        invoke(
+            &webview,
+            "save_host",
+            json!({"host": disabled, "secret": null}),
+        )
+        .unwrap();
+        let snapshot = invoke(&webview, "snapshot", json!({})).unwrap();
+        let live = snapshot["spaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|view| view["space"] == space)
+            .unwrap();
+        assert_eq!(live["control"]["owner"], "human");
+        assert_eq!(live["jobs"][0]["status"], "running");
+        assert_eq!(
+            invoke(&webview, "release", json!({"space": space})).unwrap_err()["code"],
+            "HOST_NOT_AUTHORIZED"
         );
         invoke(&webview, "close_space", json!({"space": mine})).unwrap();
         invoke(&webview, "close_space", json!({"space": space})).unwrap();
