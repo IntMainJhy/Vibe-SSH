@@ -6,6 +6,10 @@
 
 本版整合连接导入与转发、SFTP 根目录导航与续传、目录差异应用、Agent 批量部署和日志归档。桌面、内置 CLI 与 Skill 使用同一个发布版本，协议保持 v2。Beta 全量复验通过 55 项 Rust 测试、17 项前端测试、格式、Clippy 和原生验收特性编译。既有 Debian、安装迁移与 Agent 流程证据见下方。发布范围、下载与已知限制见[测试版说明](releases/0.2.0-beta.1.md)。
 
+Beta 标签 `v0.2.0-beta.1` 对应 `5044543`。本次三个 Debian 13 用例重新通过。由该提交生成的两种架构 DMG 和 ZIP 已在隔离资料目录验证从 Preview 5 升级，Intel 通过 Rosetta 执行。临时签名、配置与历史迁移、移动应用和双方的公开下载校验均通过。[GitHub Releases](https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1) · [AtomGit 发行版](https://gitcode.com/InMainJhy/Vibe-SSH/releases) · [产品官网](https://intmainjhy.github.io/Vibe-SSH/)
+
+标签工作流的 Rust 1.100 Clippy 拦截了 `AtomicU64::fetch_update` 弃用警告。本次在本地构建验证后上传同一批包，发行标签保持在原提交。主分支 `dc83acb` 兼容新旧工具链并保留 Rust 1.89 最低版本。
+
 ## 发布前收尾复验（2026-11-19）
 
 发布准备阶段的 macOS 构建已可用于日常 SSH、SFTP、监控和 Codex Skill 试用。该轮复验时公开下载是 [0.2.0-preview.5](https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-preview.5)。
