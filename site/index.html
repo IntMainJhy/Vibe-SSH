@@ -109,18 +109,27 @@
         <h2 id="workflow-title">从连接到部署。</h2>
         <ol class="workflow-steps reveal-group">
           <li>
+            <h3>打开 Vibe-SSH</h3>
+            <p>首次启动会自动为 Codex 和 Claude Code 安装 Vibe-SSH Skill，并配置配套命令行。应用升级时会同步更新。</p>
+          </li>
+          <li>
             <h3>连接服务器</h3>
             <p>添加主机、核对 SSH 指纹，再为需要协作的服务器开启 Agent 接入。</p>
           </li>
           <li>
             <h3>把任务交给 Agent</h3>
-            <p>启动应用后，让支持 Skill 和本地命令的 Agent 调用 Vibe-SSH。Codex 已完成独立部署与故障恢复验收。</p>
-          </li>
-          <li>
-            <h3>跟进并验收</h3>
-            <p>在会话查看实时输出，在任务历史回看结果，需要时直接接管。</p>
+            <p>保持应用运行，告诉 Agent 要在哪台服务器做什么。实时查看输出和任务历史，需要时直接接管。</p>
           </li>
         </ol>
+        <details class="skill-setup" id="skill-setup">
+          <summary>查看 Skill 安装位置</summary>
+          <dl>
+            <div><dt>Codex</dt><dd><code>~/.agents/skills/vibe-ssh</code></dd></div>
+            <div><dt>Claude Code</dt><dd><code>~/.claude/skills/vibe-ssh</code></dd></div>
+            <div><dt>命令行</dt><dd><code>~/.local/bin/vibe-ssh</code></dd></div>
+          </dl>
+          <p>运行 <code>~/.local/bin/vibe-ssh status</code> 可检查客户端连接。Codex 已完成独立部署与故障恢复验收。</p>
+        </details>
         <a class="text-link" href="https://github.com/IntMainJhy/Vibe-SSH/blob/main/skills/vibe-ssh/guide.md">阅读 Agent 使用指南 <span aria-hidden="true">↗</span></a>
       </section>
 
@@ -135,6 +144,7 @@
             </div>
             <div class="download-meta">
               <a href="https://github.com/IntMainJhy/Vibe-SSH/blob/v0.2.0-beta.1/docs/installation.md">安装说明</a>
+              <a href="#skill-setup">Skill 自动安装</a>
               <a href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/SHA256SUMS.txt">SHA-256 校验</a>
               <a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">版本说明</a>
               <a href="https://gitcode.com/InMainJhy/Vibe-SSH/releases">AtomGit 镜像下载</a>
