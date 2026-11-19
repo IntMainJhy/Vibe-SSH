@@ -17,7 +17,7 @@
   <strong>Watch commands and output in real time. Take over whenever you need.</strong>
 </p>
 
-<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">Download the macOS Beta</a></h3>
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">Download Personal Beta for macOS</a></h3>
 
 <p align="center">
   <a href="https://vibe-ssh.intmainjhy.cn/">Product website</a> &nbsp;·&nbsp;
@@ -37,11 +37,20 @@
 
 <p align="center">Your terminals and agent task spaces stay separate, each with its own SSH connection.</p>
 
-> **Public Beta:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
+> **Personal Beta:** packages target Apple silicon and Intel Macs. Linux is a remote-server target, not a desktop release. Packages are ad-hoc signed and are not yet Developer ID signed or notarized. See [project status](#project-status).
 
 ![Vibe-SSH workspace with server navigation, sessions and agent activity](docs/assets/workspace.png)
 
 *The actual application interface running with development sample data. Server names, addresses and task output in the screenshot are examples.*
+
+## Editions
+
+| Edition | Availability | Scope |
+| --- | --- | --- |
+| **Personal Beta** | Available as a free macOS download. Fully open source under MIT. | SSH, SFTP, port forwarding, monitoring, Agent Skill and CLI, batch deployments, history, logs, and human takeover. |
+| **Enterprise Pro** | Paid edition in development. | Versioned release templates and Markdown delivery reports for repeatable deployments. |
+
+Server credentials stay on your machine in both editions. This repository contains the full Personal edition. See the [Enterprise Pro development plan](docs/08-enterprise-pro.md).
 
 ## What you can do
 

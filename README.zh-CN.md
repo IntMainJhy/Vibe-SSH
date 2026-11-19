@@ -17,7 +17,7 @@
   <strong>命令与输出实时可见，任务空间随时接管。</strong>
 </p>
 
-<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">下载 macOS Beta</a></h3>
+<h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">下载 macOS 个人版 Beta</a></h3>
 
 <p align="center">
   <a href="https://vibe-ssh.intmainjhy.cn/">产品官网</a> &nbsp;·&nbsp;
@@ -37,11 +37,20 @@
 
 <p align="center">你的日常终端与 Agent 任务空间使用独立 SSH 连接，可以并行工作。</p>
 
-> **当前为公开测试版（Beta）**。 提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
+> **个人版 Beta**。 提供 Apple 芯片与 Intel Mac 安装包。Linux 是远端服务器目标，目前没有 Windows/Linux 桌面包。应用使用临时签名，尚未完成 Developer ID 签名与 Apple 公证。能力与验证范围见下文。
 
 ![Vibe-SSH 工作台：服务器导航、会话与 Agent 活动入口](docs/assets/workspace.png)
 
 *截图来自实际应用界面的开发预览，使用示例服务器、地址和任务数据。*
+
+## 产品版本
+
+| 版本 | 发布状态 | 功能 |
+| --- | --- | --- |
+| **个人版 Beta** | 已发布，免费下载，全部源码采用 MIT 许可 | SSH、SFTP、端口转发、监控、Agent Skill 和 CLI、批量部署、历史记录、日志和人工接管。 |
+| **企业版 Pro** | 付费版本，开发中 | 为重复交付设计的版本化发布模板和 Markdown 交付报告。 |
+
+两个版本的服务器凭据都留在本机。本仓库维护完整的个人版源码。详见[企业版 Pro 开发文档](docs/08-enterprise-pro.md)。
 
 ## 可以做什么
 
