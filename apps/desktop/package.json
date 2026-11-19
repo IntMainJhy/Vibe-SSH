@@ -1,7 +1,7 @@
 {
   "name": "vibe-ssh-desktop",
   "private": true,
-  "license": "MIT",
+  "license": "SEE LICENSE IN ../../LICENSE",
   "description": "Vibe-SSH desktop SSH/SFTP client for people and external AI agents",
   "repository": {
     "type": "git",

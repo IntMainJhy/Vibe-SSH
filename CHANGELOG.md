@@ -2,6 +2,11 @@
 
 Packages and original notes are in [GitHub Releases](https://github.com/IntMainJhy/Vibe-SSH/releases). The 0.2.0 release line is in public Beta.
 
+## Unreleased
+
+- Offer current project-owned Personal edition source under PolyForm Strict 1.0.0 for permitted noncommercial use, without modification or redistribution grants. Describe it as source-available; keep Enterprise Pro proprietary and separate.
+- Preserve previous MIT grants and notices, including Beta 1 downloads. New-license packages must use a new release version. See [licensing scope and migration](LICENSING.md).
+
 ## 0.2.0-beta.1
 
 Public macOS Beta for Apple silicon and Intel. See the [release notes](docs/releases/0.2.0-beta.1.md).

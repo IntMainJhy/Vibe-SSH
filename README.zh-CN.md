@@ -5,14 +5,14 @@
 <h3 align="center">为你和外部 AI 打造的 SSH 工作空间</h3>
 
 <p align="center">
-  <a href="LICENSE"><img src="docs/assets/license-mit.svg" alt="MIT 开源协议" width="115" height="28" /></a>
+  <a href="LICENSE"><img src="docs/assets/license-polyform-strict.svg" alt="PolyForm Strict 许可" width="194" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="docs/assets/release-downloads.svg" alt="下载发行版" width="184" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="docs/assets/ci-status.svg" alt="查看 CI 实时状态" width="153" height="28" /></a>
   <a href="docs/installation.md"><img src="docs/assets/platform-macos.svg" alt="macOS 桌面客户端" width="148" height="28" /></a>
 </p>
 
 <p align="center">
-  开源的 macOS SSH/SFTP 客户端，提供 <strong>Skill 与 CLI 接入外部 Agent</strong>。<br />
+  源码公开的 macOS SSH/SFTP 客户端，提供 <strong>Skill 与 CLI 接入外部 Agent</strong>。<br />
   手动添加自己的服务器，通过 Skill 完成网站部署与故障排查。<br />
   <strong>命令与输出实时可见，任务空间随时接管。</strong>
 </p>
@@ -47,8 +47,8 @@
 
 | 版本 | 发布状态 | 功能 |
 | --- | --- | --- |
-| **个人版 Beta** | 已发布，免费下载，全部源码采用 MIT 许可 | SSH、SFTP、端口转发、监控、Agent Skill 和 CLI、批量部署、历史记录、日志和人工接管。 |
-| **企业版 Pro** | 付费版本，开发中 | 为重复交付设计的版本化发布模板和 Markdown 交付报告。 |
+| **个人版 Beta** | 当前源码采用 PolyForm Strict：允许条款内非商业使用，不授予修改或再分发权；现有 Beta 1 下载仍为 MIT | SSH、SFTP、端口转发、监控、Agent Skill 和 CLI、批量部署、历史记录、日志和人工接管。 |
+| **企业版 Pro** | 独立闭源商业版本，开发中 | 为重复交付设计的版本化发布模板和 Markdown 交付报告。 |
 
 两个版本的服务器凭据都留在本机。本仓库维护完整的个人版源码。详见[企业版 Pro 开发文档](docs/08-enterprise-pro.md)。
 
@@ -222,6 +222,8 @@ Vibe-SSH 通过 Skill 和 CLI 接入外部 Agent，继续使用已有的 Agent �
 - 安全问题按[安全策略](SECURITY.md)私下报告。
 - 技术细节见[方案总览](docs/README.md)、[界面规范](DESIGN.md)与[Agent Skill](skills/vibe-ssh/SKILL.md)。
 
-## 开源协议
+## 使用许可
 
-Vibe-SSH 采用 [MIT License](LICENSE)。第三方组件保留各自许可证，发行包单独维护[第三方声明](third_party/licenses/README.md)。
+当前个人版自有源码采用 [PolyForm Strict 1.0.0](LICENSE)：允许条款列明的非商业用途，不授予修改、衍生开发或再分发权。超出允许用途的商业使用须另行取得书面授权。企业版 Pro 独立闭源开发。
+
+个人版属于“源码公开”，不属于 OSI 定义的开源软件。已按 MIT 发布的 `v0.2.0-beta.1` 及更早版本保留原授权，当前下载入口仍指向这些 MIT 安装包。本次变更适用于包含许可变更的源码和后续使用新版本号的发行包，不重新许可既有发行版。适用范围、GitHub 平台授权与历史许可见 [LICENSING.md](LICENSING.md)。第三方组件继续保留各自许可证和[独立声明](third_party/licenses/README.md)。

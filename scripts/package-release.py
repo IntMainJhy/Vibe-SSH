@@ -11,10 +11,22 @@ import re
 import argparse
 
 root = Path(__file__).resolve().parents[1]
+
+
+def verify_license_version(version):
+    """Do not repackage an existing release with different project terms."""
+    tagged = subprocess.run(
+        ['git', 'show', f'v{version}:LICENSE'], cwd=root, capture_output=True,
+    )
+    if tagged.returncode == 0 and tagged.stdout != (root/'LICENSE').read_bytes():
+        raise RuntimeError('license differs from the published tag; choose a new release version before packaging')
+
+
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--app',type=Path,default=root/'target/release/bundle/macos/Vibe-SSH.app')
 args=parser.parse_args()
 version = tomllib.loads((root/'Cargo.toml').read_text())['workspace']['package']['version']
+verify_license_version(version)
 app = args.app.resolve()
 binary = app / 'Contents/MacOS/vibe-ssh-desktop'
 arch = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
@@ -30,6 +42,10 @@ subprocess.run(['ditto',str(app),str(stage/'Vibe-SSH.app')],check=True)
 shutil.copyfile(root/'docs/installation.md',stage/'安装说明.md')
 shutil.copyfile(root/'docs/installation.en.md',stage/'INSTALLATION.md')
 shutil.copyfile(root/'LICENSE',stage/'LICENSE')
+shutil.copyfile(root/'NOTICE',stage/'NOTICE')
+shutil.copyfile(root/'LICENSING.md',stage/'LICENSING.md')
+(stage/'licenses').mkdir()
+shutil.copyfile(root/'licenses/MIT-previous-versions.txt',stage/'licenses/MIT-previous-versions.txt')
 revision = subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 (stage/'BUILD.txt').write_text(f'Version: {version}\nArchitecture: {arch}\nSource: https://github.com/IntMainJhy/Vibe-SSH/commit/{revision}\nSignature: ad-hoc, not Developer ID signed or notarized\n')
 notice = stage/'THIRD-PARTY-NOTICES'; notice.mkdir()

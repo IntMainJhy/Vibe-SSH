@@ -5,14 +5,14 @@
 <h3 align="center">The SSH workspace for you and your AI.</h3>
 
 <p align="center">
-  <a href="LICENSE"><img src="docs/assets/license-mit.svg" alt="MIT License" width="115" height="28" /></a>
+  <a href="LICENSE"><img src="docs/assets/license-polyform-strict.svg" alt="PolyForm Strict License" width="194" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/releases"><img src="docs/assets/release-downloads.svg" alt="Download releases" width="184" height="28" /></a>
   <a href="https://github.com/IntMainJhy/Vibe-SSH/actions/workflows/rust.yml"><img src="docs/assets/ci-status.svg" alt="View live CI status" width="153" height="28" /></a>
   <a href="docs/installation.en.md"><img src="docs/assets/platform-macos.svg" alt="macOS desktop" width="148" height="28" /></a>
 </p>
 
 <p align="center">
-  An open-source macOS SSH/SFTP client with <strong>Skill and CLI access for external agents</strong>.<br />
+  A source-available macOS SSH/SFTP client with <strong>Skill and CLI access for external agents</strong>.<br />
   Add your servers manually. Deploy and troubleshoot through Skills.<br />
   <strong>Watch commands and output in real time. Take over whenever you need.</strong>
 </p>
@@ -47,8 +47,8 @@
 
 | Edition | Availability | Scope |
 | --- | --- | --- |
-| **Personal Beta** | Available as a free macOS download. Fully open source under MIT. | SSH, SFTP, port forwarding, monitoring, Agent Skill and CLI, batch deployments, history, logs, and human takeover. |
-| **Enterprise Pro** | Paid edition in development. | Versioned release templates and Markdown delivery reports for repeatable deployments. |
+| **Personal Beta** | Source available under PolyForm Strict for permitted noncommercial use; no modification or redistribution grant. Existing Beta 1 downloads remain MIT. | SSH, SFTP, port forwarding, monitoring, Agent Skill and CLI, batch deployments, history, logs, and human takeover. |
+| **Enterprise Pro** | Separate proprietary commercial edition in development; source is not published here. | Versioned release templates and Markdown delivery reports for repeatable deployments. |
 
 Server credentials stay on your machine in both editions. This repository contains the full Personal edition. See the [Enterprise Pro development plan](docs/08-enterprise-pro.md).
 
@@ -225,4 +225,6 @@ Current packages are for macOS. Linux is a remote-server target. Other desktop p
 
 ## License
 
-Vibe-SSH is available under the [MIT License](LICENSE). Third-party components retain their own licenses; release packaging maintains separate [third-party notices](third_party/licenses/README.md).
+Current project-owned Personal edition source is offered under [PolyForm Strict 1.0.0](LICENSE): permitted noncommercial use, with no public grant to modify or redistribute. Commercial use outside its permitted purposes requires separate written authorization. Enterprise Pro remains proprietary and is developed separately.
+
+This is source-available software, not OSI Open Source. Earlier MIT versions, including `v0.2.0-beta.1`, retain their original grants; current download links still point to those MIT packages. The change applies to source containing this license transition and future differently versioned packages, not to existing releases. Read [LICENSING.md](LICENSING.md) for scope, platform permissions and historical notices. Third-party components retain their own licenses and [notices](third_party/licenses/README.md).

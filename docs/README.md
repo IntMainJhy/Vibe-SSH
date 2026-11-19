@@ -17,7 +17,7 @@
 | [交付与验收](05-delivery-and-acceptance.md) | 如何分阶段开发并证明可用 |
 | [发布流程](releases/README.md) | Beta 版本、构建、镜像和官网发布 |
 | [开发与实现状态](06-development-and-status.md) | 当前代码能做什么，如何复现验证 |
-| [版本边界与企业版 Pro 计划](08-enterprise-pro.md) | 个人版 MIT 开源范围、Pro 首个功能与验收 |
+| [版本边界与企业版 Pro 计划](08-enterprise-pro.md) | 个人版源码公开与使用许可、Pro 首个功能与验收 |
 | [正式版开发计划](07-stable-release-plan.md) | 传统 SSH、Agent 验收、性能与正式交付的开发顺序 |
 | [Codex 静态站点部署对照](performance/2026-11-18-agent-deployment.md) | 独立部署、故障恢复和端到端计时 |
 | [架构决策 0010](adr/0010-openssh-import-and-key-agent.md) | OpenSSH 预览导入与本地密钥代理认证 |
@@ -48,9 +48,9 @@
 6. 首版先验证 Linux/POSIX 远端；桌面目标为 macOS。
 7. 开发使用本地临时 SSH 服务验证，不依赖真实生产凭据。
 8. Agent 的每个目标是一个任务空间，拥有独立连接和控制权；用户自己的终端对 Agent 不可见。
-9. Vibe-SSH 自有代码采用 [MIT 协议](../LICENSE)，第三方组件保留各自许可。
+9. 当前个人版自有源码采用 [PolyForm Strict 1.0.0](../LICENSE)，允许条款内非商业使用，不授予修改或再分发权；企业版 Pro 闭源。旧 MIT 版本保留原授权，详见[许可说明](../LICENSING.md)。第三方组件保留各自许可。
 
-## 开源协作入口
+## 反馈与源码入口
 
 [English README](../README.md)、[中文首页](../README.zh-CN.md)、[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、[支持说明](../SUPPORT.md)、[路线图](../ROADMAP.md)与[更新日志](../CHANGELOG.md)面向使用者和贡献者。仓库简介、Topics 与维护约定见[仓库维护说明](maintainers/repository.md)。
 

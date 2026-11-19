@@ -1,0 +1,13 @@
+Vibe-SSH
+Copyright (c) 2026 IntMainJhy and Vibe-SSH contributors
+
+This source-available Personal edition is offered under the PolyForm Strict
+License 1.0.0 in LICENSE. The public license permits its stated noncommercial
+purposes and does not grant rights to modify or redistribute the software.
+Other use requires a separate written license from the relevant rights holders.
+
+Earlier versions offered under MIT, including v0.2.0-beta.1, retain their
+original terms. licenses/MIT-previous-versions.txt preserves that notice;
+it is not an alternative license for new work under PolyForm Strict.
+
+Third-party components retain their own licenses. See third_party/.

@@ -2,7 +2,7 @@
 
 ## Positioning
 
-Vibe-SSH is an open-source macOS SSH/SFTP client for people and external AI agents. Users add servers manually. Agents use Skills and the local CLI; people watch and take over isolated task spaces.
+Vibe-SSH is a source-available macOS SSH/SFTP client for people and external AI agents. Users add servers manually. Agents use Skills and the local CLI; people watch and take over isolated task spaces.
 
 Keep the English README and Chinese README aligned on features, platform support and preview limits. Link detailed evidence rather than copying engineering history into the introduction. Do not market an unreleased working-tree feature as part of a download.
 
@@ -12,9 +12,9 @@ README badges use [repository-owned SVGs](../assets/README.md#static-badges), be
 
 Description:
 
-> Open-source macOS SSH/SFTP client for people and AI agents. Let Codex, Claude Code and other CLI agents deploy and troubleshoot your servers through Skills, with isolated task spaces, live terminal output and human takeover. Rust + Tauri. 支持外部 AI 操作与人工接管的 SSH 客户端。
+> macOS SSH/SFTP for people and AI agents. Personal source: PolyForm Strict, permitted noncommercial use, no modification or redistribution grant. Enterprise Pro: proprietary, in development. Watch real output and take over.
 
-Website: <https://github.com/IntMainJhy/Vibe-SSH/releases>
+Website: <https://vibe-ssh.intmainjhy.cn/>
 
 Topics:
 
@@ -48,7 +48,7 @@ The remote name is only a local Git alias; it does not enable automatic synchron
 
 Synchronize other published branches or tags explicitly when requested, preserving their existing commit IDs. Git pushes do not copy GitHub Issues, Discussions, Actions runs or release attachment files; download links continue to point to GitHub Releases.
 
-AtomGit's description records the external-agent workflow, manual server setup, human takeover, Rust/Tauri stack, MIT license and macOS preview scope. Its five project tags are `ssh`, `ai-agents`, `codex`, `sftp` and `devops`. The project URL points to the GitHub Releases page.
+AtomGit's description records the external-agent workflow, manual server setup, human takeover, Rust/Tauri stack, license policy and macOS preview scope. The previous MIT description is historical; update external About fields to say source-available when publishing the license change. Its five project tags are `ssh`, `ai-agents`, `codex`, `sftp` and `devops`. The project URL points to the GitHub Releases page.
 
 ## Community entry points
 
@@ -58,7 +58,9 @@ Keep Issues enabled. Do not create placeholder issues, fabricated testimonials, 
 
 ## Licensing
 
-The root LICENSE is MIT, attributed to IntMainJhy and Vibe-SSH contributors. Rust packages inherit the workspace license; the frontend declares MIT. Release packaging copies LICENSE along with English/Chinese installation notes and separate third-party notices.
+The root LICENSE contains the unmodified PolyForm Strict 1.0.0 terms for current project-owned Personal edition source; NOTICE preserves attribution. It permits its stated noncommercial purposes and grants no modification or redistribution rights. Enterprise Pro is proprietary and developed separately. Use “source-available”, not “open source”, for the new policy.
+
+Rust packages inherit the workspace license-file because PolyForm Strict has no SPDX identifier in the checked license list. The private frontend points to the root LICENSE. Package LICENSE, NOTICE, LICENSING.md and licenses/MIT-previous-versions.txt with installation notes and independent third-party notices. Existing MIT releases, including v0.2.0-beta.1, keep their original terms and download links; publish new-license packages under a new version. See [LICENSING.md](../../LICENSING.md). External About fields and deployed pages must be updated when these local changes are published; this document does not change them remotely.
 
 The GitHub license badge links to the actual license file. Existing published archives are not rebuilt by a documentation update; the packaging additions apply to future releases.
 

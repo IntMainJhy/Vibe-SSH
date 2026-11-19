@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="194" height="28" viewBox="0 0 194 28" role="img" aria-labelledby="license-title">
+  <title id="license-title">License: PolyForm Strict</title>
+  <rect width="72" height="28" fill="#555"/>
+  <rect x="72" width="122" height="28" fill="#343434"/>
+  <g fill="#fff" font-family="Verdana, Geneva, 'DejaVu Sans', sans-serif" font-size="14" text-anchor="middle">
+    <text x="36" y="20">License</text>
+    <text x="133" y="20">PolyForm Strict</text>
+  </g>
+</svg>

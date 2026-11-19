@@ -62,10 +62,12 @@ Read `scripts/linux-vm.sh` and the [deployment examples](examples) before using 
 
 The repository's [AGENTS.md](AGENTS.md) applies when using coding agents.
 
-## Pull requests
+## Code contributions and pull requests
 
 Keep a PR focused on one problem. Explain the trigger, resulting behavior and evidence. Update protocol documentation and the Skill when interfaces change. Record incompatible behavior and migration requirements.
 
 For Rust or protocol changes, run relevant tests, formatting and Clippy. For UI changes, include screenshots and distinguish sample data from native/SSH evidence. For documentation-only changes, check links and examples; running server fixtures is unnecessary.
 
-Retain third-party copyright and license notices. Original contributions submitted to this project are provided under its [MIT License](LICENSE). No copyright assignment is required.
+Bug reports, reproducible cases and feature requests are welcome. Current Personal edition source is available under [PolyForm Strict 1.0.0](LICENSE), which does not grant modification or redistribution rights. The development instructions above are for the rights holder or contributors with separate written permission.
+
+Before preparing or submitting code changes, obtain separate written permission and agree terms covering modification, submission, distribution and commercial licensing. Opening a pull request does not itself grant those permissions or transfer copyright. Do not assume an MIT inbound contribution policy for new work. Retain third-party notices and do not submit code you cannot authorize. Earlier MIT contributions keep their original grants; see [LICENSING.md](LICENSING.md).

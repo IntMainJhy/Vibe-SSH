@@ -19,4 +19,4 @@ Exact copy:
 
 The files are self-contained. The SVG text remains editable and uses local system fonts. PNG exports capture the reviewed typography for consistent display on repository hosts. The approved standalone mark also supplies the desktop bundle, Dock, navigation brand and browser favicon. Regenerate the macOS PNG/ICNS assets with `python3 scripts/generate-icons.py` on macOS after updating the source PNG. The banner describes external AI operation and human takeover without speed, ranking or award claims.
 
-License: MIT, as defined by the repository LICENSE.
+The pre-transition artwork was offered under MIT; those historical grants remain in force. New work follows the current source-available policy in [LICENSING.md](../../LICENSING.md). Do not add “MIT open source” to current-policy artwork; use “源码公开 · 非商业使用免费” with a link to the full license. Earlier MIT release artwork remains historical.
