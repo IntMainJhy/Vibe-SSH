@@ -373,6 +373,37 @@ a { color: inherit; }
 .skill-setup p { margin: 10px 0 12px; font-size: 14px; }
 .workflow .text-link { display: flex; width: fit-content; margin: 10px auto 0; font-weight: 570; }
 
+.edition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: clamp(24px, 4vw, 46px);
+}
+.edition {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: clamp(22px, 4vw, 40px);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+}
+.edition-pro {
+  background: radial-gradient(ellipse at 90% 0%, var(--shine), transparent 76%), var(--panel);
+}
+.edition h3 {
+  margin: 0;
+  font-size: clamp(23px, 3.3vw, 36px);
+  line-height: 1.15;
+}
+.edition p, .edition ul, .edition-note { margin: 0; color: var(--muted); }
+.edition .edition-state { color: var(--ink); font-size: .86rem; }
+.edition ul { padding-inline-start: 1.15em; }
+.edition .text-link { margin-top: auto; padding-top: 6px; }
+.edition-note { margin-top: 18px; text-align: center; font-size: .92rem; }
+@media (max-width: 680px) { .edition-grid { grid-template-columns: minmax(0, 1fr); } }
+
 .download { padding-bottom: clamp(68px, 9vw, 115px); }
 .download-panel {
   position: relative;

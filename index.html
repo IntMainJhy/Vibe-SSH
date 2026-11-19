@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Vibe-SSH 是为开发者和运维打造的开源 macOS SSH 客户端。管理终端、SFTP 文件和服务器资源，也能通过 Skill 让 Agent 部署，随时接管。">
+    <meta name="description" content="Vibe-SSH 是面向开发者和运维的 macOS SSH 客户端。个人版 Beta 完全开源。付费企业版 Pro 正在开发发布模板与交付报告。">
     <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#171717" media="(prefers-color-scheme: dark)">
     <link rel="canonical" href="https://vibe-ssh.intmainjhy.cn/">
     <meta property="og:url" content="https://vibe-ssh.intmainjhy.cn/">
     <meta property="og:image" content="https://vibe-ssh.intmainjhy.cn/assets/agent-session-beta.1.webp">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Vibe-SSH Beta | 你的 SSH，Agent 也能用">
-    <meta property="og:description" content="开源 macOS SSH 客户端公开测试。连接服务器、传输文件，让 Agent 通过 Skill 部署。">
-    <title>Vibe-SSH Beta | 你的 SSH，Agent 也能用</title>
+    <meta property="og:title" content="Vibe-SSH | 个人版 Beta 与企业版 Pro">
+    <meta property="og:description" content="个人版 Beta 提供开源 SSH、SFTP 与 Agent 部署。付费企业版 Pro 开发中。">
+    <title>Vibe-SSH | 个人版 Beta 与企业版 Pro</title>
     <link rel="icon" href="./assets/mark.png" type="image/png">
     <link rel="stylesheet" href="./styles.css">
     <link rel="preload" as="image" href="./assets/agent-session-beta.1.webp">
@@ -23,8 +23,8 @@
     <aside class="beta-bar" id="top" aria-label="Beta 测试公告">
       <div class="wrap beta-bar-inner">
         <span class="beta-pill">Beta</span>
-        <p>Vibe-SSH 开放测试</p>
-        <a href="#download">下载 macOS Beta <span aria-hidden="true">→</span></a>
+        <p>个人版 Beta 开放测试</p>
+        <a href="#download">下载个人版 <span aria-hidden="true">→</span></a>
       </div>
     </aside>
     <header class="site-header">
@@ -36,6 +36,7 @@
         <nav class="page-nav" aria-label="页面导航">
           <a href="#features">功能</a>
           <a href="#workflow">如何使用</a>
+          <a href="#editions">版本</a>
           <a href="#download">下载</a>
         </nav>
         <nav class="repo-nav" aria-label="仓库与维护者">
@@ -56,7 +57,7 @@
         <button class="hero-motion" type="button" hidden>暂停背景动画</button>
         <div class="wrap">
           <div class="hero-copy">
-            <p class="hero-label">开源 macOS SSH 客户端</p>
+            <p class="hero-label">个人版 Beta · 开源 macOS SSH 客户端</p>
             <h1 id="hero-title"><span>你的 SSH，</span><span>Agent 也能用。</span></h1>
             <p class="hero-description">终端、SFTP 和服务器监控都在一个工作台。<br>用 Skill 让 Agent 部署，随时查看进度或接管。</p>
             <div class="hero-actions">
@@ -72,7 +73,7 @@
               </div>
             </div>
             <figcaption>
-              <span>Beta 1 界面 · 示例数据</span>
+              <span>个人版 Beta 1 · 示例数据</span>
               <a href="./assets/agent-session-beta.1.webp">查看完整截图 <span aria-hidden="true">↗</span></a>
             </figcaption>
           </figure>
@@ -138,11 +139,38 @@
         <a class="text-link" href="https://github.com/IntMainJhy/Vibe-SSH/blob/main/skills/vibe-ssh/guide.md">阅读 Agent 使用指南 <span aria-hidden="true">↗</span></a>
       </section>
 
+      <section class="wrap section editions" id="editions" aria-labelledby="editions-title">
+        <h2 id="editions-title">选择适合你的版本</h2>
+        <div class="edition-grid reveal-group">
+          <article class="edition">
+            <p class="edition-state">免费 · MIT 开源</p>
+            <h3>个人版 Beta</h3>
+            <p>为开发者与独立运维提供完整的 SSH 工作空间。</p>
+            <ul>
+              <li>SSH 终端、SFTP、资源监控和端口转发</li>
+              <li>Agent Skill、批量部署、日志和人工接管</li>
+            </ul>
+            <a class="text-link" href="#download">下载 macOS 个人版 <span aria-hidden="true">↓</span></a>
+          </article>
+          <article class="edition edition-pro">
+            <p class="edition-state">付费版本 · 开发中</p>
+            <h3>企业版 Pro</h3>
+            <p>为重复发布同一项目、需要交付记录的团队而做。</p>
+            <ul>
+              <li>保存和复用指定版本的发布模板</li>
+              <li>从部署历史导出 Markdown 交付报告</li>
+            </ul>
+            <a class="text-link" href="https://github.com/IntMainJhy/Vibe-SSH/blob/main/docs/08-enterprise-pro.md">查看 Pro 开发计划 <span aria-hidden="true">↗</span></a>
+          </article>
+        </div>
+        <p class="edition-note">两个版本的服务器凭据都留在本机。</p>
+      </section>
+
       <section class="wrap section download" id="download" aria-labelledby="download-title">
         <div class="download-panel reveal-group">
           <div class="download-copy">
-            <h2 id="download-title">下载 Vibe-SSH</h2>
-            <p>macOS 公开测试版 0.2.0-beta.1</p>
+            <h2 id="download-title">下载个人版 Beta</h2>
+            <p>macOS · 0.2.0-beta.1 · MIT 开源</p>
             <div class="download-actions">
               <a class="button button-primary" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-arm64.dmg">下载 Apple 芯片版 <span aria-hidden="true">↓</span></a>
               <a class="button button-outline" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-x86_64.dmg">下载 Intel 版 <span aria-hidden="true">↓</span></a>
