@@ -340,6 +340,22 @@ a { color: inherit; }
 }
 .workflow-steps li { padding: 25px clamp(16px, 2.6vw, 36px); }
 .workflow-steps li + li { border-inline-start: 1px solid var(--line); }
+.skill-setup {
+  max-width: 540px;
+  margin: 16px auto 0;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--button-radius);
+  background: var(--surface);
+  scroll-margin-top: 24px;
+}
+.skill-setup summary { padding-block: 10px; cursor: pointer; font-weight: 570; }
+.skill-setup dl { display: grid; gap: 5px; margin: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.skill-setup dl div { display: flex; gap: 4px 14px; align-items: baseline; flex-wrap: wrap; }
+.skill-setup dt { min-width: 96px; color: var(--muted); font-size: 14px; }
+.skill-setup dd { margin: 0; }
+.skill-setup code { font-size: 13px; overflow-wrap: anywhere; }
+.skill-setup p { margin: 10px 0 12px; font-size: 14px; }
 .workflow .text-link { display: flex; width: fit-content; margin: 10px auto 0; font-weight: 570; }
 
 .download { padding-bottom: clamp(68px, 9vw, 115px); }
