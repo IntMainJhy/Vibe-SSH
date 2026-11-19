@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Vibe-SSH 是为开发者和运维打造的开源 macOS SSH 客户端。管理终端、SFTP 文件和服务器资源，也能通过 Skill 让 Agent 部署，随时接管。">
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#171717" media="(prefers-color-scheme: dark)">
+    <link rel="canonical" href="https://intmainjhy.github.io/Vibe-SSH/">
+    <meta property="og:url" content="https://intmainjhy.github.io/Vibe-SSH/">
+    <meta property="og:image" content="https://intmainjhy.github.io/Vibe-SSH/assets/agent-session.webp">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Vibe-SSH Beta | 你的 SSH，Agent 也能用">
+    <meta property="og:description" content="开源 macOS SSH 客户端公开测试。连接服务器、传输文件，让 Agent 通过 Skill 部署。">
+    <title>Vibe-SSH Beta | 你的 SSH，Agent 也能用</title>
+    <link rel="icon" href="./assets/mark.png" type="image/png">
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="preload" as="image" href="./assets/agent-session.webp">
+    <script type="module" src="./hero-shader.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="wordmark" href="#top">
+          <img src="./assets/mark.png" width="36" height="36" alt="">
+          <span>Vibe-SSH</span>
+        </a>
+        <nav class="page-nav" aria-label="页面导航">
+          <a href="#features">功能</a>
+          <a href="#workflow">如何使用</a>
+          <a href="#download">下载</a>
+        </nav>
+        <nav class="repo-nav" aria-label="源代码仓库">
+          <a href="https://github.com/IntMainJhy/Vibe-SSH">GitHub <span aria-hidden="true">↗</span></a>
+          <a href="https://gitcode.com/InMainJhy/Vibe-SSH">AtomGit <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </header>
+    <aside class="beta-bar" aria-label="Beta 测试公告">
+      <div class="wrap beta-bar-inner">
+        <span class="beta-pill">Beta</span>
+        <p>Vibe-SSH 开放测试</p>
+        <a href="#download">下载 macOS Beta <span aria-hidden="true">→</span></a>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <canvas class="hero-shader" aria-hidden="true"></canvas>
+        <button class="hero-motion" type="button" hidden>暂停背景动画</button>
+        <div class="wrap">
+          <div class="hero-copy">
+            <p class="hero-label">开源 macOS SSH 客户端</p>
+            <h1 id="hero-title"><span>你的 SSH，</span><span>Agent 也能用。</span></h1>
+            <p class="hero-description">终端、SFTP 和服务器监控都在一个工作台。<br>用 Skill 让 Agent 部署，随时查看进度或接管。</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-arm64.dmg">下载 Apple 芯片版 <span aria-hidden="true">↓</span></a>
+              <a class="button button-outline" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-x86_64.dmg">下载 Intel 版 <span aria-hidden="true">↓</span></a>
+            </div>
+          </div>
+
+          <figure class="hero-figure">
+            <div class="hero-stage">
+              <div class="app-window">
+                <img src="./assets/agent-session.webp" width="1440" height="900" fetchpriority="high" alt="Vibe-SSH 会话界面，显示部署终端和接管会话按钮。">
+              </div>
+            </div>
+            <figcaption>
+              <span>Agent 部署，随时接管</span>
+              <a href="./assets/agent-session.webp">查看完整截图 <span aria-hidden="true">↗</span></a>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="wrap section features" id="features" aria-labelledby="features-title">
+        <h2 id="features-title">一个工作台，<span class="keep-phrase">管好服务器。</span></h2>
+        <div class="feature-layout reveal-group">
+          <article class="feature feature-workspace">
+            <div class="feature-copy">
+              <h3>连接、传文件、看资源</h3>
+              <p>打开 SSH 终端，浏览和编辑远端文件。大文件或文件夹传到一半，也能回来接着传。Linux 服务器的 CPU、内存和磁盘用量在监控页查看。</p>
+            </div>
+            <figure class="workspace-figure">
+              <img src="./assets/workspace.webp" width="1440" height="900" loading="lazy" decoding="async" alt="Vibe-SSH 工作台显示已配置服务器、当前会话和文件与监控入口。">
+            </figure>
+          </article>
+          <article class="feature feature-agent">
+            <div class="feature-copy">
+              <h3>Agent 在独立会话里工作</h3>
+              <p>按服务器授权 Agent。它有自己的连接，你可以在自己的终端继续工作，也能查看它的命令和输出。</p>
+            </div>
+            <code>vibe-ssh skill</code>
+          </article>
+          <article class="feature feature-takeover">
+            <div class="feature-copy">
+              <h3>想介入时，一键接管</h3>
+              <p>接管会立即阻止 Agent 提交新的操作。你可以查看故障、主动中断任务，或在检查后把控制权归还。</p>
+            </div>
+            <figure class="takeover-figure" aria-hidden="true">
+              <img src="./assets/agent-session.webp" width="1440" height="900" loading="lazy" decoding="async" alt="">
+            </figure>
+          </article>
+        </div>
+      </section>
+
+      <section class="wrap section workflow" id="workflow" aria-labelledby="workflow-title">
+        <h2 id="workflow-title">从连接到部署。</h2>
+        <ol class="workflow-steps reveal-group">
+          <li>
+            <h3>连接服务器</h3>
+            <p>添加主机、核对 SSH 指纹，再为需要协作的服务器开启 Agent 接入。</p>
+          </li>
+          <li>
+            <h3>把任务交给 Agent</h3>
+            <p>启动应用后，让支持 Skill 和本地命令的 Agent 调用 Vibe-SSH。Codex 已完成独立部署与故障恢复验收。</p>
+          </li>
+          <li>
+            <h3>跟进并验收</h3>
+            <p>在会话查看实时输出，在任务历史回看结果，需要时直接接管。</p>
+          </li>
+        </ol>
+        <a class="text-link" href="https://github.com/IntMainJhy/Vibe-SSH/blob/main/skills/vibe-ssh/guide.md">阅读 Agent 使用指南 <span aria-hidden="true">↗</span></a>
+      </section>
+
+      <section class="wrap section download" id="download" aria-labelledby="download-title">
+        <div class="download-panel reveal-group">
+          <div class="download-copy">
+            <h2 id="download-title">下载 Vibe-SSH</h2>
+            <p>macOS 公开测试版 0.2.0-beta.1</p>
+            <div class="download-actions">
+              <a class="button button-primary" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-arm64.dmg">下载 Apple 芯片版 <span aria-hidden="true">↓</span></a>
+              <a class="button button-outline" href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/Vibe-SSH-0.2.0-beta.1-macos-x86_64.dmg">下载 Intel 版 <span aria-hidden="true">↓</span></a>
+            </div>
+            <div class="download-meta">
+              <a href="https://github.com/IntMainJhy/Vibe-SSH/blob/v0.2.0-beta.1/docs/installation.md">安装说明</a>
+              <a href="https://github.com/IntMainJhy/Vibe-SSH/releases/download/v0.2.0-beta.1/SHA256SUMS.txt">SHA-256 校验</a>
+              <a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">版本说明</a>
+            </div>
+          </div>
+          <img class="download-art" src="./assets/connection.webp" width="960" height="640" loading="lazy" decoding="async" alt="">
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <span>Vibe-SSH</span>
+        <div class="footer-links">
+          <a href="https://github.com/IntMainJhy/Vibe-SSH/issues/new/choose">提交测试反馈 <span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/IntMainJhy/Vibe-SSH/blob/main/LICENSE">MIT 开源许可 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
