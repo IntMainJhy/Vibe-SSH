@@ -102,6 +102,7 @@ impl LogStore {
                 && metadata.is_file()
                 && fs::remove_file(path).is_ok()
             {
+                #[allow(deprecated, reason = "Rust 1.89 does not have AtomicU64::try_update")]
                 let _ = self
                     .used
                     .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
@@ -132,6 +133,7 @@ impl Writer {
             return;
         }
         let desired = (STREAM_LIMIT - self.len).min(data.len() as u64);
+        #[allow(deprecated, reason = "Rust 1.89 does not have AtomicU64::try_update")]
         let before = used
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 Some(n + desired.min(STORE_LIMIT.saturating_sub(n)))
