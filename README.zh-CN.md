@@ -20,7 +20,7 @@
 <h3 align="center"><a href="https://github.com/IntMainJhy/Vibe-SSH/releases/tag/v0.2.0-beta.1">下载 macOS Beta</a></h3>
 
 <p align="center">
-  <a href="https://intmainjhy.github.io/Vibe-SSH/">产品官网</a> &nbsp;·&nbsp;
+  <a href="https://vibe-ssh.intmainjhy.cn/">产品官网</a> &nbsp;·&nbsp;
   <a href="#可以做什么">功能概览</a> &nbsp;·&nbsp;
   <a href="docs/installation.md">安装说明</a> &nbsp;·&nbsp;
   <a href="skills/vibe-ssh/guide.md">Agent 指南</a> &nbsp;·&nbsp;
