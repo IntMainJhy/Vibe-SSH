@@ -11,4 +11,4 @@ pages_commit=$(git subtree split --prefix site HEAD)
 git push origin "$pages_commit:refs/heads/gh-pages"
 ```
 
-页面无需应用服务。下载文件和校验由 GitHub Releases 提供，AtomGit 镜像通过同一下载页分发安装包。
+页面由 GitHub Pages 提供静态托管。主下载入口指向 GitHub Releases，下载区同时链接 AtomGit 镜像发行版。
