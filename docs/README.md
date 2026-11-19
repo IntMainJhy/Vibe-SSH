@@ -1,6 +1,6 @@
 # Vibe-SSH 方案总览
 
-当前交付阶段为 macOS **公开测试版 0.2.0-beta.1**。从[发布说明](releases/0.2.0-beta.1.md)查看安装包、支持范围和已知限制，从[开发与实现状态](06-development-and-status.md)查阅分阶段验收。
+当前交付阶段为 macOS **个人版 Beta 0.2.0-beta.1**。从[发布说明](releases/0.2.0-beta.1.md)查看安装包、支持范围和已知限制，从[开发与实现状态](06-development-and-status.md)查阅分阶段验收。
 
 本方案将 Vibe-SSH 定义为可由外部 Agent 高效操作的桌面 SSH 客户端。服务器由用户手动添加，操作在客户端内核中统一执行，客户端提供真实输出和可执行的接管动作。
 
@@ -17,6 +17,7 @@
 | [交付与验收](05-delivery-and-acceptance.md) | 如何分阶段开发并证明可用 |
 | [发布流程](releases/README.md) | Beta 版本、构建、镜像和官网发布 |
 | [开发与实现状态](06-development-and-status.md) | 当前代码能做什么，如何复现验证 |
+| [版本边界与企业版 Pro 计划](08-enterprise-pro.md) | 个人版 MIT 开源范围、Pro 首个功能与验收 |
 | [正式版开发计划](07-stable-release-plan.md) | 传统 SSH、Agent 验收、性能与正式交付的开发顺序 |
 | [Codex 静态站点部署对照](performance/2026-11-18-agent-deployment.md) | 独立部署、故障恢复和端到端计时 |
 | [架构决策 0010](adr/0010-openssh-import-and-key-agent.md) | OpenSSH 预览导入与本地密钥代理认证 |
