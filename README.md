@@ -12,3 +12,5 @@ git push origin "$pages_commit:refs/heads/gh-pages"
 ```
 
 页面由 GitHub Pages 提供静态托管。主下载入口指向 GitHub Releases，下载区同时链接 AtomGit 镜像发行版。
+
+顶栏使用 [GitHub Octicons](https://github.com/primer/octicons) 的 GitHub 标识和 [AtomGit 站点图标](https://cdn-static.gitcode.com/static/images/logo-favicon.png) 链接各自的仓库。
